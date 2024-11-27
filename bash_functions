@@ -158,3 +158,18 @@ detect-package-manager() {
   1>&2 echo "Cannot detect package manager on system $(uname -o) $(uname -r)"
   return 2
 }
+
+search() {
+    if [ -z "$1" ]; then
+        echo "Usage: search <search_term>"
+        return 1
+    fi
+
+    local search_term="$1"
+
+    # Define the directory to start the search from, e.g., current directory
+    local start_dir="."
+
+    # Execute the find command
+    find "$start_dir" -name "*$search_term*"
+}

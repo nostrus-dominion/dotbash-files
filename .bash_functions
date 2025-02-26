@@ -165,10 +165,15 @@ search() {
         return 1
     fi
 
-    local search_term="$1"
+    local search_term="$*"
 
-    # Define the directory to start the search from, e.g., current directory
+    # Define the directory to start the search from
     local start_dir="."
+
+    # Execute the find command
+    find "$start_dir" -name "*$search_term*"
+}
+
 
     # Execute the find command
     find "$start_dir" -name "*$search_term*"

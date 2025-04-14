@@ -159,6 +159,7 @@ detect-package-manager() {
   return 2
 }
 
+# Uses find command in working directory
 search() {
     if [ -z "$1" ]; then
         echo "Usage: search <search_term>"
@@ -169,11 +170,6 @@ search() {
 
     # Define the directory to start the search from
     local start_dir="."
-
-    # Execute the find command
-    find "$start_dir" -name "*$search_term*"
-}
-
 
     # Execute the find command
     find "$start_dir" -name "*$search_term*"

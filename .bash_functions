@@ -38,6 +38,7 @@ urlencode() {
   jq -nr --arg v "$args" '$v|@uri'
 }
 
+# A quick duckduckgo search
 duckduckgo() {
   lynx "https://lite.duckduckgo.com/lite/?q=$(urlencode "$@")"
 }
@@ -135,6 +136,13 @@ history10() {
   echo "Top 10 your most commonly used commands:"
   echo
   history | awk '{CMD[$2]++;count++;}END { for (a in CMD)print CMD[a] " " CMD[a]/count*100 "% " a;}' | grep -v "./" | column -c3 -s " " -t | sort -nr | nl | head -n10
+}
+
+# Clear bash history
+clear_history() {
+  cat /dev/null > ~/.bash_history
+  history -c
+  source ~/.bashrc
 }
 
 # Finds all supported package managers on your system

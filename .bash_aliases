@@ -38,7 +38,7 @@ alias tcpdump='tcpdump -i eth1'
 alias vnstat='vnstat -i eth1'
 
 # Python bullshit
-alias python='pyton3'
+alias python='python3'
 alias pip='pip3'
 alias pipup='pip install --upgrade pip'
 alias pyenv='python -m venv ./venv'

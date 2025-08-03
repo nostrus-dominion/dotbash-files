@@ -182,3 +182,17 @@ search() {
     # Execute the find command
     find "$start_dir" -name "*$search_term*"
 }
+
+# Have rsync ding the console when done moving things
+rsync() {
+        command rsync "$@"
+        if [[ $? -eq 0 && ! " $* " =~ " --dry-run " ]]; then
+                [[ -t 1 ]] && echo -e "\a"
+        fi
+}
+
+# colorize code with less
+lesscode() {
+    pygmentize -g "$1" | less -R
+}
+

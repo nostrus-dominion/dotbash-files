@@ -1,5 +1,4 @@
-# you forgot sudo didn't you?
-alias please='sudo $(fc -ln -1)'
+# `please` is a function in .bash_functions. Inspect and approve before running.
 
 # saftey nets
 alias chgrp='chgrp --preserve-root'
@@ -28,21 +27,16 @@ alias .5='cd ../../../../..'
 alias .r='cd /'
 
 # network stuff
-alias localip="ifconfig | sed -En 's/127.0.0.1//;s/.*inet (addr:)?(([0-9]*\.){3}[0-9]*).*/\2/p'"
+alias localip='ip -brief -4 address show'
 alias wanip='curl icanhazip.com'
-alias dnstop='dnstop -l 5  eth1'
-alias ethtool='ethtool eth1'
-alias iftop='iftop -i eth1'
-alias ports='netstat -tulanp | sort -t: -k2 -n'
-alias tcpdump='tcpdump -i eth1'
-alias vnstat='vnstat -i eth1'
+alias ports='ss -tulnp'
 
 # Python bullshit
 alias python='python3'
 alias pip='pip3'
 alias pipup='pip install --upgrade pip'
 alias pyenv='python -m venv ./venv'
-alias pyact='source ./venv/bin/activate'
+# pyact is defined in .bash_functions and handles venv* directories.
 
 # custom commands
 alias rebash="source $HOME/.bashrc && echo Bash config reloaded"

@@ -1,93 +1,66 @@
-# README
-Welcome to my ```dotbash-files```  Repository
+# dotbash-files
 
-Welcome to the repository where the magic of my terminal setup resides! Here, you’ll find my meticulously crafted .bashrc, .bash_aliases, and .bash_functions files, all designed to make your shell experience smoother, faster, and more enjoyable.
+*One set of shortcuts. Several machines. Distinct prompt colors so you know which server you're about to bother.*
 
-### Introduction
+This is my Bash setup: shared aliases and functions, plus a `.bashrc` for each host. CORSAIR also has ComfyUI and `yt-dlp` helpers in separate modules. The configuration reflects my machines and paths, so read it before installing it on yours.
 
-This repository is a collection of my personal Bash configuration files. It includes various aliases, functions, and configurations that I use daily to enhance my productivity and streamline my workflow in the terminal.
+| File | Job |
+| --- | --- |
+| `.bash_aliases` | Shared navigation, system, Python, and networking shortcuts |
+| `.bash_functions` | Shared helpers and a loader for optional modules |
+| `.bash_functions.d/comfy.bash` | `comfy` service controls and `comfy-backup` |
+| `.bash_functions.d/ytdl.bash` | `ytdl` wrapper with download defaults |
+| `corsair.bashrc` | CORSAIR prompt and shell settings |
+| `jumpbox.bashrc`, `media-server.bashrc`, `seedbox.bashrc`, `thevault.bashrc` | Host prompts and local settings |
+| `root.bashrc` | Distinct root prompt |
 
-### Getting Started
+## Commands I actually use
 
-To get started, you’ll need to clone this repository to your local machine. Here’s how you can do it:
+| Command | What it does |
+| --- | --- |
+| `please` | Shows the previous history command, asks for approval, then runs it under `sudo bash` |
+| `mkcd NAME` | Creates a directory and enters it |
+| `extract ARCHIVE` | Extracts a supported archive, including filenames with spaces |
+| `freeport PORT` | Displays processes using a port and sends TERM; does not force kill |
+| `default-interface` | Prints the interface used for the default IPv4 route |
+| `iftop`, `tcpdump`, `vnstat`, `ethtool`, `dnstop` | Use that interface by default; pass an interface to override |
+| `ports` | Lists listening TCP/UDP sockets with `ss` |
+| `pyact` | Finds a local `venv*/bin/activate` and asks before activating |
+| `comfy`, `comfy-backup`, `ytdl` | Optional CORSAIR modules |
+| `reset-master-branch` | Guarded reset to `upstream/master` and force-with-lease push to `origin/master` |
 
-```git clone https://github.com/nostrus-dominion/dotbash-files.git```
+The `please` command runs the displayed history entry as Bash under sudo, including any operators or substitutions it contains. Read the command before approving it.
 
-```cd dotbash-files```
+## Install
 
-### Installation
+```bash
+git clone https://github.com/nostrus-dominion/dotbash-files.git
+cd dotbash-files
+cp -a ~/.bashrc ~/.bashrc.backup
+for file in .bash_aliases .bash_functions; do
+    [[ ! -e "$HOME/$file" ]] || cp -a "$HOME/$file" "$HOME/$file.backup"
+    cp "$file" "$HOME/$file"
+done
+```
 
-To integrate my .bash files with your current setup, follow these simple steps:
+Pick the Bash configuration for the machine you are **actually using**; for example, on CORSAIR:
 
-#### Backup Your Existing Files:
+```bash
+cp corsair.bashrc ~/.bashrc
+cp -a .bash_functions.d ~/.bash_functions.d
+source ~/.bashrc
+```
 
-Before making any changes, it’s always a good idea to back up your existing Bash configuration files:
+The module directory is optional. Install it on CORSAIR if you want the ComfyUI and media commands. These commands assume `/mnt/comfyui`, `/mnt/storage/comfyui-backups`, and `/home/pmusselman/Videos/YTDL`. The other host configurations source the same shared files. If you install the modules on another machine, they will load there too, but the machine-specific commands may not work.
 
-```cp ~/.bashrc ~/.bashrc.backup```
+`root.bashrc` is for a root shell. Do not replace your regular user's `.bashrc` with it. The repo does not install files automatically or overwrite a machine's configuration without you copying them.
 
-```cp ~/.bash_aliases ~/.bash_aliases.backup```
+Optional commands depend on programs such as `ip`, `ss`, `lsof`, `git`, `curl`, `jq`, `yt-dlp`, `ffmpeg`, and `7z`. The individual commands report missing dependencies where practical.
 
-```cp ~/.bash_functions ~/.bash_functions.backup```
+## Check before you reload
 
-#### Copy My Files:
+```bash
+bash -n .bash_aliases .bash_functions .bash_functions.d/*.bash *.bashrc
+```
 
-Copy the files from this repository to your home directory:
-
-```cp dotbash-files/.bashrc ~/```
-
-```cp dotbash-files/.bash_aliases ~/```
-
-```cp dotbash-files/.bash_functions ~/```
-
-#### Reload Bash Configuration:
-
-After copying the files, reload your Bash configuration to apply the changes:
-
-```source ~/.bashrc```
-
-Features
-
-Here’s a glimpse of what’s inside:
-
-    Aliases: Shortcuts for common commands to save time.
-    Functions: Custom functions to automate repetitive tasks.
-    Environment Settings: Customized settings for a more personalized terminal experience.
-
-Highlights
-
-    Enhanced ls command: Color-coded output for better readability.
-    Git shortcuts: Quick commands to streamline your Git workflow.
-    Navigation aids: Simplified directory traversal with smart shortcuts.
-
-Usage
-
-Once installed, you can start using the enhanced commands and features. Here are a few examples:
-
-    List files with colors:
-
-    ll
-
-Quick Git status:
-
-    gs
-
-Navigate up directories:
-
-    ..   # equivalent to `cd ..`
-    ...  # equivalent to `cd ../..`
-
-### Contributing
-
-I welcome contributions! If you have any improvements or new features to suggest, feel free to fork the repository and submit a pull request. Let’s make our terminal experience even better together!
-
-### License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-Enjoy your enhanced terminal experience!
-
-Happy Coding!
-
-If you encounter any issues or have questions, please open an issue on this repository or reach out to me directly.
-
-Feel free to add any personalized touches to the README, like your contact information or additional details specific to your setup.
+Changes are personal utilities, not a promise that every command works on every host. If you spot a useful improvement, open an issue or pull request.

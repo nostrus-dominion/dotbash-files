@@ -119,6 +119,6 @@ fi
 export PS1="\[\033[38;5;51m\]\u@\h:\[$(tput sgr0)\]\W\\$ \[$(tput sgr0)\]"
 
 ## Custom Aliases for media-server ONLY
-alias stoparr="sudo systemctl stop --now radarr.service sonarr.service lidarr.service prowlarr.service"
-alias startarr="sudo systemctl start --now radarr.service sonarr.service lidarr.service prowlarr.service"
+alias stoparr="sudo systemctl stop radarr.service sonarr.service lidarr.service prowlarr.service"
+alias startarr="sudo systemctl start radarr.service sonarr.service lidarr.service prowlarr.service"
 alias tree="tree --dirsfirst -pughs"

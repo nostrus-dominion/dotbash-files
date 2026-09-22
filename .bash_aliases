@@ -29,7 +29,7 @@ alias .r='cd /'
 # network stuff
 alias localip='ip -brief -4 address show'
 alias wanip='curl icanhazip.com'
-alias ports='ss -tulnp'
+# ports is a function in .bash_functions and accepts an optional port.
 
 # Python bullshit
 alias python='python3'

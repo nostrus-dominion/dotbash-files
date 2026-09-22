@@ -35,7 +35,11 @@ dotbash-files/
 | `freeport PORT` | Lists processes using a port and sends TERM |
 | `default-interface` | Finds the default IPv4 network interface |
 | `iftop`, `tcpdump`, `vnstat`, `ethtool`, `dnstop` | Use that interface unless you specify another |
-| `ports` | Displays listening TCP/UDP sockets via `ss` |
+| `ports [PORT]` | Displays listening TCP/UDP sockets, optionally for one port |
+| `myip` | Shows local and public IPv4 addresses |
+| `largest [DIR]` | Lists the 20 largest files under `DIR`, or the current directory |
+| `git-clean` | Shows branch and working-tree status; returns an error if there are changes |
+| `mkvenv [DIR]` | Creates and activates a new Python virtual environment (default `venv`) |
 | `pyact` | Finds a `venv*/bin/activate` and asks before activating |
 | `comfy`, `comfy-backup`, `ytdl` | Optional CORSAIR-specific commands |
 | `reset-master-branch` | Guarded reset and force-with-lease push to `origin/master` |

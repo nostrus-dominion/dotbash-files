@@ -12,7 +12,7 @@
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact ports 2>/dev/null || :
 
 
 # ============================================================================
@@ -44,6 +44,50 @@ ethtool() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] 
 iftop() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command iftop -i "$interface"; }
 tcpdump() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command tcpdump -i "$interface"; }
 vnstat() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command vnstat -i "$interface"; }
+
+# Show listening TCP/UDP sockets, optionally restricted to a local port.
+ports() {
+    if (( $# > 1 )) || { (( $# == 1 )) && [[ ! $1 =~ ^[0-9]+$ ]]; }; then
+        echo 'Usage: ports [port]' >&2
+        return 2
+    fi
+    if (( $# == 0 )); then
+        ss -tulnp
+        return
+    fi
+    if (( ${#1} > 5 )); then
+        echo 'Port must be between 1 and 65535.' >&2
+        return 2
+    fi
+    local port=$((10#$1))
+    if (( port < 1 || port > 65535 )); then
+        echo 'Port must be between 1 and 65535.' >&2
+        return 2
+    fi
+    ss -tulnp "sport = :$port"
+}
+
+# Show local IPv4 addresses and the public IPv4 address.
+myip() {
+    (( $# == 0 )) || { echo 'Usage: myip' >&2; return 2; }
+    echo 'Local IPv4:'
+    ip -brief -4 address show up || return
+    echo 'Public IPv4:'
+    curl -4fsS --max-time 5 https://icanhazip.com
+}
+
+# Show the 20 largest files in the current directory tree or a given directory.
+largest() {
+    (( $# <= 1 )) || { echo 'Usage: largest [directory]' >&2; return 2; }
+    local directory=${1:-$PWD}
+    [[ -d $directory ]] || { printf 'Not a directory: %s\n' "$directory" >&2; return 1; }
+    local entry bytes filename
+    while IFS= read -r -d '' entry; do
+        bytes=${entry%%$'\t'*}
+        filename=${entry#*$'\t'}
+        printf '%8s  %s\n' "$(numfmt --to=iec --suffix=B "$bytes")" "$filename"
+    done < <(find "$directory" -type f -printf '%s\t%p\0' | sort -z -t $'\t' -k1,1nr | head -z -n 20)
+}
 
 # Print aliases and functions from common Bash configuration files.
 all-aliases() {
@@ -707,6 +751,23 @@ up() {
 # Git
 # ============================================================================
 
+# Inspect the current repository; return 0 only when its working tree is clean.
+git-clean() {
+    (( $# == 0 )) || { echo 'Usage: git-clean' >&2; return 2; }
+    local root
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        echo 'Not inside a Git working tree.' >&2
+        return 1
+    }
+    printf '%s\n' "$root"
+    git -C "$root" status --short --branch || return
+    if [[ -n $(git -C "$root" status --porcelain --untracked-files=normal) ]]; then
+        echo 'Working tree has changes.'
+        return 1
+    fi
+    echo 'Working tree is clean.'
+}
+
 # Reset the local master branch to upstream/master and force-push origin/master.
 #
 # This is intentionally guarded because it destroys local commits/changes and
@@ -768,6 +829,20 @@ reset-master-branch() {
 # ============================================================================
 # Services
 # ============================================================================
+
+# Create and activate a Python virtual environment in this shell.
+mkvenv() {
+    (( $# <= 1 )) || { echo 'Usage: mkvenv [directory]' >&2; return 2; }
+    local directory=${1:-venv}
+    if [[ -e $directory || -L $directory ]]; then
+        printf 'Already exists: %s\n' "$directory" >&2
+        return 1
+    fi
+    command -v python3 >/dev/null || { echo 'python3 is required.' >&2; return 1; }
+    python3 -m venv "$directory" || return
+    # shellcheck source=/dev/null
+    source "$directory/bin/activate"
+}
 
 # Activate the first venv*/bin/activate found in the current directory.
 pyact() {

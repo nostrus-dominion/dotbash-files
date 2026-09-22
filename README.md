@@ -2,65 +2,64 @@
 
 *One set of shortcuts. Several machines. Distinct prompt colors so you know which server you're about to bother.*
 
-This is my Bash setup: shared aliases and functions, plus a `.bashrc` for each host. CORSAIR also has ComfyUI and `yt-dlp` helpers in separate modules. The configuration reflects my machines and paths, so read it before installing it on yours.
+The shared Bash setup lives at the repository root. Host files contain only the prompt and settings specific to that machine. CORSAIR's ComfyUI and `yt-dlp` commands live in optional Bash modules.
 
-| File | Job |
-| --- | --- |
-| `.bash_aliases` | Shared navigation, system, Python, and networking shortcuts |
-| `.bash_functions` | Shared helpers and a loader for optional modules |
-| `.bash_functions.d/comfy.bash` | `comfy` service controls and `comfy-backup` |
-| `.bash_functions.d/ytdl.bash` | `ytdl` wrapper with download defaults |
-| `corsair.bashrc` | CORSAIR prompt and shell settings |
-| `jumpbox.bashrc`, `media-server.bashrc`, `seedbox.bashrc`, `thevault.bashrc` | Host prompts and local settings |
-| `root.bashrc` | Distinct root prompt |
+```text
+dotbash-files/
+├── .bash_common
+├── .bash_aliases
+├── .bash_functions
+├── .bash_functions.d/
+│   ├── comfy.bash
+│   └── ytdl.bash
+├── hosts/
+│   ├── corsair.bashrc
+│   ├── jumpbox.bashrc
+│   ├── media-server.bashrc
+│   ├── seedbox.bashrc
+│   └── thevault.bashrc
+├── root.bashrc
+├── install.sh
+└── README.md
+```
 
-## Commands I actually use
+`.bash_common` holds settings that used to appear in every host file: history, window-size updates, `lesspipe`, color support, standard `ls` aliases, loading `.bash_aliases` and `.bash_functions`, and programmable completion. Each host's `.bashrc` sources it, then sets its prompt and any host-specific commands. The root prompt is separate and is not installed by `install.sh`.
+
+## Commands
 
 | Command | What it does |
 | --- | --- |
-| `please` | Shows the previous history command, asks for approval, then runs it under `sudo bash` |
-| `mkcd NAME` | Creates a directory and enters it |
-| `extract ARCHIVE` | Extracts a supported archive, including filenames with spaces |
-| `freeport PORT` | Displays processes using a port and sends TERM; does not force kill |
-| `default-interface` | Prints the interface used for the default IPv4 route |
-| `iftop`, `tcpdump`, `vnstat`, `ethtool`, `dnstop` | Use that interface by default; pass an interface to override |
-| `ports` | Lists listening TCP/UDP sockets with `ss` |
-| `pyact` | Finds a local `venv*/bin/activate` and asks before activating |
-| `comfy`, `comfy-backup`, `ytdl` | Optional CORSAIR modules |
-| `reset-master-branch` | Guarded reset to `upstream/master` and force-with-lease push to `origin/master` |
+| `please` | Displays the previous history command and asks before running it with `sudo bash` |
+| `mkcd NAME` | Creates and enters a directory |
+| `extract ARCHIVE` | Extracts common archive formats, including paths with spaces |
+| `freeport PORT` | Lists processes using a port and sends TERM |
+| `default-interface` | Finds the default IPv4 network interface |
+| `iftop`, `tcpdump`, `vnstat`, `ethtool`, `dnstop` | Use that interface unless you specify another |
+| `ports` | Displays listening TCP/UDP sockets via `ss` |
+| `pyact` | Finds a `venv*/bin/activate` and asks before activating |
+| `comfy`, `comfy-backup`, `ytdl` | Optional CORSAIR-specific commands |
+| `reset-master-branch` | Guarded reset and force-with-lease push to `origin/master` |
 
-The `please` command runs the displayed history entry as Bash under sudo, including any operators or substitutions it contains. Read the command before approving it.
+Read what `please` displays before approving: shell substitutions and operators in your previous command will run with sudo. `comfy` and `ytdl` assume CORSAIR's paths and software are installed.
 
 ## Install
 
-```bash
-git clone https://github.com/nostrus-dominion/dotbash-files.git
-cd dotbash-files
-cp -a ~/.bashrc ~/.bashrc.backup
-for file in .bash_aliases .bash_functions; do
-    [[ ! -e "$HOME/$file" ]] || cp -a "$HOME/$file" "$HOME/$file.backup"
-    cp "$file" "$HOME/$file"
-done
-```
-
-Pick the Bash configuration for the machine you are **actually using**; for example, on CORSAIR:
+Clone or extract the repository somewhere you intend to keep it. `install.sh` creates links into that directory, so moving or deleting the directory later will break those links. Run the installer **as your own user**, not with sudo:
 
 ```bash
-cp corsair.bashrc ~/.bashrc
-cp -a .bash_functions.d ~/.bash_functions.d
-source ~/.bashrc
+bash install.sh corsair
 ```
 
-The module directory is optional. Install it on CORSAIR if you want the ComfyUI and media commands. These commands assume `/mnt/comfyui`, `/mnt/storage/comfyui-backups`, and `/home/pmusselman/Videos/YTDL`. The other host configurations source the same shared files. If you install the modules on another machine, they will load there too, but the machine-specific commands may not work.
+Supported names: `corsair`, `jumpbox`, `media-server`, `seedbox`, and `thevault`. With no argument the installer uses your short hostname if it matches one of these names. It shows the chosen host and asks for confirmation. Existing `~/.bashrc`, `~/.bash_common`, `~/.bash_aliases`, `~/.bash_functions`, and `~/.bash_functions.d` entries are moved into a timestamped `~/.bash-backup-*` directory before links are installed. Open a new Bash session afterward.
 
-`root.bashrc` is for a root shell. Do not replace your regular user's `.bashrc` with it. The repo does not install files automatically or overwrite a machine's configuration without you copying them.
+To restore your previous configuration, move the backed-up files from that directory back into your home directory after removing the links. A backup folder is created even on a fresh account, where it may be empty.
 
-Optional commands depend on programs such as `ip`, `ss`, `lsof`, `git`, `curl`, `jq`, `yt-dlp`, `ffmpeg`, and `7z`. The individual commands report missing dependencies where practical.
+The installer links the optional module directory on every host. Those functions load but only work where their dependencies and machine-specific paths exist. If you want a command available on one host only, install the shared files manually and omit the module link there.
 
-## Check before you reload
+## Validate
 
 ```bash
-bash -n .bash_aliases .bash_functions .bash_functions.d/*.bash *.bashrc
+bash -n .bash_common .bash_aliases .bash_functions .bash_functions.d/*.bash hosts/*.bashrc root.bashrc install.sh
 ```
 
-Changes are personal utilities, not a promise that every command works on every host. If you spot a useful improvement, open an issue or pull request.
+These are personal utilities. Dependencies include `ip`, `ss`, `lsof`, `git`, `curl`, `jq`, `yt-dlp`, `ffmpeg`, and `7z` for particular commands.

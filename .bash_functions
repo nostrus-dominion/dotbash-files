@@ -10,6 +10,10 @@
 # File managers supported by open():
 #   dolphin, nautilus, thunar, pcmanfm
 
+# An existing interactive shell may still have aliases from an older config.
+# Remove names that are functions below before Bash parses their definitions.
+unalias please dnstop ethtool iftop tcpdump vnstat pyact 2>/dev/null || :
+
 
 # ============================================================================
 # General utilities

@@ -28,8 +28,12 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
-[[ ! -r $HOME/.bash_aliases ]] || source "$HOME/.bash_aliases"
-[[ ! -r $HOME/.bash_functions ]] || source "$HOME/.bash_functions"
+if [[ -r $HOME/.bash_aliases ]]; then
+    source "$HOME/.bash_aliases" || return $?
+fi
+if [[ -r $HOME/.bash_functions ]]; then
+    source "$HOME/.bash_functions" || return $?
+fi
 
 if ! shopt -oq posix; then
     if [[ -r /usr/share/bash-completion/bash_completion ]]; then

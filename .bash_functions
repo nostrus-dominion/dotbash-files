@@ -564,188 +564,35 @@ up() {
     echo "Checking for updates..."
     echo
 
-    local updates response updateStatus
-
     case "$packageManager" in
         apt)
-            sudo apt update || {
-                echo "Error: apt update failed." >&2
-                return 1
-            }
-
-            updates=$(apt-get -s upgrade | awk '/^Inst / {print $2}')
-
-            if [[ -z "$updates" ]]; then
-                echo "System is already up to date."
-                return 0
-            fi
-
-            echo "Updates available:"
-            echo
-            printf '%s\n' "$updates"
-            echo
-
-            read -r -p "Upgrade these packages? [y/N] " response
-
-            case "$response" in
-                [yY]|[yY][eE][sS])
-                    echo
-                    sudo apt upgrade
-                    ;;
-                *)
-                    echo "Upgrade cancelled."
-                    ;;
-            esac
+            sudo apt update && sudo apt upgrade
             ;;
-
         dnf)
-            sudo dnf check-update
-            updateStatus=$?
-
-            case "$updateStatus" in
-                0)
-                    echo "System is already up to date."
-                    ;;
-                100)
-                    echo
-                    read -r -p "Install available updates? [y/N] " response
-
-                    case "$response" in
-                        [yY]|[yY][eE][sS])
-                            echo
-                            sudo dnf upgrade
-                            ;;
-                        *)
-                            echo "Upgrade cancelled."
-                            ;;
-                    esac
-                    ;;
-                *)
-                    echo "Error: dnf check-update failed." >&2
-                    return "$updateStatus"
-                    ;;
-            esac
+            sudo dnf upgrade
             ;;
-
         yum)
-            sudo yum check-update
-            updateStatus=$?
-
-            case "$updateStatus" in
-                0)
-                    echo "System is already up to date."
-                    ;;
-                100)
-                    echo
-                    read -r -p "Install available updates? [y/N] " response
-
-                    case "$response" in
-                        [yY]|[yY][eE][sS])
-                            echo
-                            sudo yum update
-                            ;;
-                        *)
-                            echo "Upgrade cancelled."
-                            ;;
-                    esac
-                    ;;
-                *)
-                    echo "Error: yum check-update failed." >&2
-                    return "$updateStatus"
-                    ;;
-            esac
+            sudo yum update
             ;;
-
         pacman)
-            updates=$(pacman -Qu 2>/dev/null)
-
-            if [[ -z "$updates" ]]; then
-                echo "System is already up to date."
-                return 0
-            fi
-
-            echo "Updates available:"
-            echo
-            printf '%s\n' "$updates"
-            echo
-
-            read -r -p "Upgrade these packages? [y/N] " response
-
-            case "$response" in
-                [yY]|[yY][eE][sS])
-                    echo
-                    sudo pacman -Syu
-                    ;;
-                *)
-                    echo "Upgrade cancelled."
-                    ;;
-            esac
+            sudo pacman -Syu
             ;;
-
         apk)
-            sudo apk update || {
-                echo "Error: apk update failed." >&2
-                return 1
-            }
-
-            echo
-            read -r -p "Upgrade installed packages? [y/N] " response
-
-            case "$response" in
-                [yY]|[yY][eE][sS])
-                    echo
-                    sudo apk upgrade
-                    ;;
-                *)
-                    echo "Upgrade cancelled."
-                    ;;
-            esac
+            # apk never asks for confirmation on its own, so --interactive is needed
+            sudo apk update && sudo apk upgrade --interactive
             ;;
-
         emerge)
-            echo "Portage does not have a universal non-interactive update check here."
-            echo
-
-            read -r -p "Sync repositories and update @world? [y/N] " response
-
-            case "$response" in
-                [yY]|[yY][eE][sS])
-                    echo
-                    sudo emerge --sync && sudo emerge -avuDU @world
-                    ;;
-                *)
-                    echo "Upgrade cancelled."
-                    ;;
-            esac
+            sudo emerge --sync && sudo emerge --ask --update --deep --newuse @world
             ;;
-
         zypper)
-            sudo zypper refresh || {
-                echo "Error: zypper refresh failed." >&2
-                return 1
-            }
-
-            echo
-            read -r -p "Install available updates? [y/N] " response
-
-            case "$response" in
-                [yY]|[yY][eE][sS])
-                    echo
-                    sudo zypper update
-                    ;;
-                *)
-                    echo "Upgrade cancelled."
-                    ;;
-            esac
+            sudo zypper refresh && sudo zypper update
             ;;
-
         *)
             echo "Error: Unsupported package manager: $packageManager" >&2
             return 2
             ;;
     esac
 }
-
 
 # ============================================================================
 # Git

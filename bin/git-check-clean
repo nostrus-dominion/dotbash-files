@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# description: Check whether the current Git working tree is clean.
+# usage: git check-clean
 
 if (( $# != 0 )); then
     echo "Usage: git check-clean" >&2

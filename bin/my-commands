@@ -103,12 +103,12 @@ if [[ -r $HOME/.bash_functions ]]; then
                 next
             }
 
-            /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*\(\)[[:space:]]*\{/ {
+            /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*\(\)[[:space:]]*[({]/ {
                 line=$0
                 sub(/^[[:space:]]*/, "", line)
                 name=line
                 sub(/\(\).*/, "", name)
-                printf "%s\t%s\n", name, desc
+                if (name !~ /^_/) printf "%s\t%s\n", name, desc
                 desc=""
                 next
             }

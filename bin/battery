@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# description: Show compact battery status suitable for the shell or prompt.
+# usage: battery
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage: battery
+
+Prints a compact battery indicator on macOS and Linux.
+Prints nothing when the machine has no detectable battery.
+EOF
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+    (( $# == 1 )) || {
+        usage >&2
+        exit 2
+    }
+    usage
+    exit 0
+fi
+
+(( $# == 0 )) || {
+    usage >&2
+    exit 2
+}
+
+format_minutes() {
+    local total=$1
+    local hours=$((total / 60))
+    local minutes=$((total % 60))
+    printf '%d:%02d' "$hours" "$minutes"
+}
+
+print_status() {
+    local emoji=$1
+    local percent=$2
+    local detail=${3:-}
+
+    if [[ -n $detail ]]; then
+        printf '\033[1;92m%s  %s  %s\033[0m\n' "$emoji" "$percent" "$detail"
+    else
+        printf '\033[1;92m%s  %s\033[0m\n' "$emoji" "$percent"
+    fi
+}
+
+case "$(uname -s)" in
+    Darwin)
+        command -v pmset >/dev/null 2>&1 || exit 0
+
+        battstat=$(pmset -g batt 2>/dev/null) || exit 0
+        line=$(printf '%s\n' "$battstat" | tail -n 1)
+
+        percent=$(printf '%s\n' "$line" | grep -oE '[0-9]+%' | head -n 1)
+        [[ -n $percent ]] || exit 0
+
+        if pmset -g ac 2>/dev/null | grep -q 'No adapter attached'; then
+            emoji='🔋'
+        else
+            emoji='🔌'
+        fi
+
+        time_left=$(printf '%s\n' "$line" | awk -F'; *' '{print $3}' | awk '{print $1}')
+
+        case "$time_left" in
+            ''|'(no'|'not'|'calculating')
+                time_left=''
+                ;;
+            0:00)
+                time_left='⚡'
+                ;;
+        esac
+
+        print_status "$emoji" "$percent" "$time_left"
+        ;;
+
+    Linux)
+        shopt -s nullglob
+        batteries=(/sys/class/power_supply/BAT*)
+        shopt -u nullglob
+
+        (( ${#batteries[@]} > 0 )) || exit 0
+        battery_dir=${batteries[0]}
+
+        [[ -r $battery_dir/capacity ]] || exit 0
+        read -r capacity < "$battery_dir/capacity"
+        [[ $capacity =~ ^[0-9]+$ ]] || exit 0
+        percent="${capacity}%"
+
+        status=''
+        [[ -r $battery_dir/status ]] && read -r status < "$battery_dir/status"
+
+        case "$status" in
+            Charging|Full|'Not charging')
+                emoji='🔌'
+                ;;
+            *)
+                emoji='🔋'
+                ;;
+        esac
+
+        detail=''
+
+        if [[ -r $battery_dir/energy_now && -r $battery_dir/power_now ]]; then
+            read -r now < "$battery_dir/energy_now"
+            read -r rate < "$battery_dir/power_now"
+            full=''
+            [[ -r $battery_dir/energy_full ]] && read -r full < "$battery_dir/energy_full"
+        elif [[ -r $battery_dir/charge_now && -r $battery_dir/current_now ]]; then
+            read -r now < "$battery_dir/charge_now"
+            read -r rate < "$battery_dir/current_now"
+            full=''
+            [[ -r $battery_dir/charge_full ]] && read -r full < "$battery_dir/charge_full"
+        else
+            now=''
+            rate=''
+            full=''
+        fi
+
+        if [[ $now =~ ^[0-9]+$ && $rate =~ ^[0-9]+$ ]] && (( rate > 0 )); then
+            if [[ $status == Charging && $full =~ ^[0-9]+$ ]] && (( full > now )); then
+                minutes=$(((full - now) * 60 / rate))
+                detail="$(format_minutes "$minutes") to full"
+            elif [[ $status == Discharging ]]; then
+                minutes=$((now * 60 / rate))
+                detail="$(format_minutes "$minutes") remaining"
+            fi
+        fi
+
+        print_status "$emoji" "$percent" "$detail"
+        ;;
+
+    *)
+        exit 0
+        ;;
+esac

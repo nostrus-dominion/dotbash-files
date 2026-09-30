@@ -245,7 +245,7 @@ rm() {
         fi
     fi
 
-    command rm "$@"
+    command rm -I --preserve-root "$@"
 }
 
 # Find files/directories whose names contain the supplied text.
@@ -638,85 +638,6 @@ up() {
             ;;
     esac
 }
-
-# ============================================================================
-# Git
-# ============================================================================
-
-# Inspect the current repository; return 0 only when its working tree is clean.
-git-clean() {
-    (( $# == 0 )) || { echo 'Usage: git-clean' >&2; return 2; }
-    local root
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-        echo 'Not inside a Git working tree.' >&2
-        return 1
-    }
-    printf '%s\n' "$root"
-    git -C "$root" status --short --branch || return
-    if [[ -n $(git -C "$root" status --porcelain --untracked-files=normal) ]]; then
-        echo 'Working tree has changes.'
-        return 1
-    fi
-    echo 'Working tree is clean.'
-}
-
-# Reset the local master branch to upstream/master and force-push origin/master.
-#
-# This is intentionally guarded because it destroys local commits/changes and
-# rewrites the remote branch.
-reset-master-branch() {
-    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-        echo "Error: This is not a Git repository." >&2
-        return 1
-    fi
-
-    local currentBranch
-    currentBranch=$(git branch --show-current)
-
-    if [[ "$currentBranch" != "master" ]]; then
-        printf "Error: You are currently on '%s', not 'master'.\n" "$currentBranch" >&2
-        return 1
-    fi
-
-    if ! git remote get-url upstream &>/dev/null; then
-        echo "Error: No 'upstream' remote is configured." >&2
-        return 1
-    fi
-
-    if ! git remote get-url origin &>/dev/null; then
-        echo "Error: No 'origin' remote is configured." >&2
-        return 1
-    fi
-
-    echo "WARNING: This will:"
-    echo "  1. Fetch upstream/master"
-    echo "  2. Reset local master to upstream/master"
-    echo "  3. Force-push origin/master"
-    echo
-    echo "Any commits on local master that are not in upstream/master will be lost"
-    echo "from the local branch, and origin/master will be rewritten."
-    echo
-
-    if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
-        echo "Error: Working tree has changes or untracked files. Commit, stash, or remove them first." >&2
-        return 1
-    fi
-
-    # Confirm the upstream ref exists before resetting the local branch.
-    git fetch upstream master || return 1
-    git rev-parse --verify 'refs/remotes/upstream/master^{commit}' >/dev/null || return 1
-
-    read -r -p "Type RESET to continue: " confirmation
-
-    if [[ "$confirmation" != "RESET" ]]; then
-        echo "Operation cancelled."
-        return 1
-    fi
-
-    git reset --hard upstream/master || return 1
-    git push origin master --force-with-lease
-}
-
 
 # ============================================================================
 # Services

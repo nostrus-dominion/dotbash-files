@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+# Resets the local branch to upstream/master and force-push origin/master.
+#
+# This is intentionally guarded because it destroys local commits/changes and
+# rewrites the remote branch.
+
+set -u
+
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+    echo "Error: This is not a Git repository." >&2
+    exit 1
+fi
+
+if ! git remote get-url upstream &>/dev/null; then
+    echo "Error: No 'upstream' remote is configured." >&2
+    exit 1
+fi
+
+if ! git remote get-url origin &>/dev/null; then
+    echo "Error: No 'origin' remote is configured." >&2
+    exit 1
+fi
+
+echo "Fetching upstream..."
+git fetch upstream || exit 1
+
+upstreamHead=$(git symbolic-ref --quiet --short refs/remotes/upstream/HEAD 2>/dev/null || true)
+
+if [[ -n "$upstreamHead" ]]; then
+    defaultBranch=${upstreamHead#upstream/}
+else
+    defaultBranch=$(
+        git remote show upstream 2>/dev/null |
+            sed -n '/HEAD branch/s/.*: //p'
+    )
+fi
+
+if [[ -z "$defaultBranch" || "$defaultBranch" == "(unknown)" ]]; then
+    echo "Error: Could not determine upstream's default branch." >&2
+    exit 1
+fi
+
+currentBranch=$(git branch --show-current)
+
+if [[ "$currentBranch" != "$defaultBranch" ]]; then
+    printf "Error: You are currently on '%s', not the default branch '%s'.\n" \
+        "$currentBranch" "$defaultBranch" >&2
+    exit 1
+fi
+
+if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+    echo "Error: Working tree has changes or untracked files." >&2
+    echo "Commit, stash, or remove them first." >&2
+    exit 1
+fi
+
+if ! git rev-parse --verify \
+    "refs/remotes/upstream/${defaultBranch}^{commit}" &>/dev/null; then
+    printf "Error: upstream/%s does not exist.\n" "$defaultBranch" >&2
+    exit 1
+fi
+
+repoRoot=$(git rev-parse --show-toplevel)
+
+echo
+printf "Repository:     %s\n" "$repoRoot"
+printf "Default branch: %s\n" "$defaultBranch"
+echo
+echo "WARNING: This will:"
+printf "  1. Reset local %s to upstream/%s\n" \
+    "$defaultBranch" "$defaultBranch"
+printf "  2. Force-push local %s to origin/%s\n" \
+    "$defaultBranch" "$defaultBranch"
+echo
+printf "Any commits on local %s that are not in upstream/%s will be lost.\n" \
+    "$defaultBranch" "$defaultBranch"
+printf "origin/%s will be rewritten.\n" "$defaultBranch"
+echo
+
+read -r -p "Type RESET to continue: " confirmation
+
+if [[ "$confirmation" != "RESET" ]]; then
+    echo "Operation cancelled."
+    exit 1
+fi
+
+echo
+printf "Resetting %s to upstream/%s...\n" \
+    "$defaultBranch" "$defaultBranch"
+
+git reset --hard "upstream/$defaultBranch" || exit 1
+
+echo
+printf "Pushing %s to origin/%s...\n" \
+    "$defaultBranch" "$defaultBranch"
+
+git push origin "$defaultBranch" --force-with-lease

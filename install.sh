@@ -13,7 +13,7 @@ Run as root (or with sudo) to install only the managed root prompt.
 EOF
 }
 
-if (( $# != 0 )); then
+if [[ ${BASH_SOURCE[0]} == "$0" ]] && (( $# != 0 )); then
     if (( $# == 1 )) && [[ $1 == -h || $1 == --help ]]; then
         usage
         exit 0
@@ -176,237 +176,219 @@ select_color() {
     done
 }
 
+# Read installer metadata without executing a user's private shell code.
+local_setting() {
+    local key=$1
+    [[ -r $HOME/.bash_local ]] || return 0
+    sed -n "s/^# dotbash-${key}: //p" "$HOME/.bash_local" | tail -n 1
+}
+
+# Replace only the requested installer block. Keep arbitrary user code last.
+write_local_block() {
+    local label=$1 content=$2 tmp
+    tmp=$(mktemp "$HOME/.bash-local.XXXXXXXX") || return 1
+    {
+        printf '# >>> dotbash-files %s >>>\n%s\n# <<< dotbash-files %s <<<\n\n' "$label" "$content" "$label"
+        awk -v start="# >>> dotbash-files $label >>>" -v end="# <<< dotbash-files $label <<<" '
+            $0 == start { skip=1; next }
+            $0 == end { skip=0; next }
+            !skip { print }
+            END { if (skip) exit 1 }
+        ' "$HOME/.bash_local"
+    } > "$tmp" || { command rm -f -- "$tmp"; return 1; }
+    bash -n "$tmp" || { command rm -f -- "$tmp"; return 1; }
+    chmod 0600 -- "$tmp"
+    command mv -- "$tmp" "$HOME/.bash_local"
+}
+
 setup_gitconfig() {
     command -v git >/dev/null 2>&1 || {
-        echo 'Git is not installed; skipping local Git identity setup.'
+        echo 'Git is not installed; skipping Git identity setup.'
         return 0
     }
 
-    local local_config="$HOME/.local/gitconfig"
-    local git_authorname=''
-    local git_authoremail=''
-    local git_credential='cache'
-    local current_name=''
-    local current_email=''
-    local answer=''
-    local tmp=''
-    local include_found=false
-    local include_path=''
+    local legacy="$HOME/.local/gitconfig" entry key value include_path
+    local current_name current_email author_name author_email answer content helper
+    local legacy_dir=${legacy%/*}
 
-    mkdir -p -- "$HOME/.local"
-
-    if [[ "$(uname -s)" == Darwin ]]; then
-        git_credential='osxkeychain'
+    # Git cannot parse Bash. Migrate the old include into native global config so
+    # editors/GUI clients also retain it, including multi-valued custom settings.
+    if [[ -f $legacy ]]; then
+        git config --file "$legacy" --list >/dev/null || return 1
+        cp -p -- "$legacy" "$backup_dir/gitconfig-local"
+        if [[ -f $HOME/.gitconfig ]]; then
+            cp -p -- "$HOME/.gitconfig" "$backup_dir/gitconfig-global"
+        fi
+        if [[ -f ${XDG_CONFIG_HOME:-$HOME/.config}/git/config ]]; then
+            cp -p -- "${XDG_CONFIG_HOME:-$HOME/.config}/git/config" "$backup_dir/gitconfig-global-xdg"
+        fi
+        while IFS= read -r -d '' entry; do
+            key=${entry%%$'\n'*}
+            value=${entry#*$'\n'}
+            if [[ $key == include.path || $key == includeif.*.path ]]; then
+                # Relative includes used to resolve beside ~/.local/gitconfig.
+                [[ $value == /* || $value == '~/'* ]] || value="$legacy_dir/$value"
+            fi
+            # Preserve native multi-valued settings, particularly credential helpers.
+            git config --global --add "$key" "$value"
+        done < <(git config --file "$legacy" --null --list)
+        for include_path in "$legacy" '~/.local/gitconfig'; do
+            git config --global --fixed-value --unset-all include.path "$include_path" || [[ $? == 5 ]]
+        done
+        command mv -- "$legacy" "$backup_dir/gitconfig-local-retired"
+        echo 'Migrated ~/.local/gitconfig into native global Git configuration.'
     fi
 
-    if [[ -r $local_config ]]; then
-        current_name=$(git config --file "$local_config" --get user.name 2>/dev/null || :)
-        current_email=$(git config --file "$local_config" --get user.email 2>/dev/null || :)
-
-        echo >/dev/tty
-        if [[ -n $current_name || -n $current_email ]]; then
-            printf 'Existing local Git identity: %s <%s>. Change it? [y/N] ' \
-                "${current_name:-unknown}" "${current_email:-unknown}" >/dev/tty
-        else
-            printf 'Existing ~/.local/gitconfig found. Reconfigure Git identity? [y/N] ' >/dev/tty
-        fi
-
+    current_name=$(local_setting git-name)
+    current_email=$(local_setting git-email)
+    current_name=${current_name:-$(git config --global --get user.name 2>/dev/null || :)}
+    current_email=${current_email:-$(git config --global --get user.email 2>/dev/null || :)}
+    if [[ -n $current_name && -n $current_email ]]; then
+        printf 'Existing Git identity: %s <%s>. Change it? [y/N] ' "$current_name" "$current_email" >/dev/tty
         read -r answer </dev/tty || return 1
         if [[ $answer != [yY] && $answer != [yY][eE][sS] ]]; then
-            echo 'Keeping existing local Git config.' >/dev/tty
-        else
-            current_name=''
-            current_email=''
+            # Add a block on migration, but never reset a user's existing block.
+            [[ -z $(local_setting git-name) ]] || return 0
+            author_name=$current_name
+            author_email=$current_email
         fi
     fi
-
-    if [[ ! -r $local_config || -z $current_name || -z $current_email ]]; then
-        [[ -n $current_name ]] || current_name=$(git config --global --get user.name 2>/dev/null || :)
-        [[ -n $current_email ]] || current_email=$(git config --global --get user.email 2>/dev/null || :)
-
-        echo >/dev/tty
-
-        while [[ -z $git_authorname ]]; do
-            if [[ -n $current_name ]]; then
-                printf 'Git author name [%s]: ' "$current_name" >/dev/tty
-            else
-                printf 'Git author name: ' >/dev/tty
-            fi
-            read -r git_authorname </dev/tty || return 1
-            git_authorname=${git_authorname:-$current_name}
+    if [[ -z ${author_name:-} ]]; then
+        while true; do
+            printf 'Git author name [%s]: ' "$current_name" >/dev/tty
+            read -r author_name </dev/tty || return 1
+            author_name=${author_name:-$current_name}
+            [[ -n $author_name ]] && break
         done
-
-        while [[ -z $git_authoremail ]]; do
-            if [[ -n $current_email ]]; then
-                printf 'Git author email [%s]: ' "$current_email" >/dev/tty
-            else
-                printf 'Git author email: ' >/dev/tty
-            fi
-            read -r git_authoremail </dev/tty || return 1
-            git_authoremail=${git_authoremail:-$current_email}
+        while true; do
+            printf 'Git author email [%s]: ' "$current_email" >/dev/tty
+            read -r author_email </dev/tty || return 1
+            author_email=${author_email:-$current_email}
+            [[ -n $author_email ]] && break
         done
-
-        tmp=$(mktemp) || return 1
-        git config --file "$tmp" user.name "$git_authorname"
-        git config --file "$tmp" user.email "$git_authoremail"
-        git config --file "$tmp" credential.helper "$git_credential"
-
-        mv -- "$tmp" "$local_config"
-        chmod 0600 -- "$local_config"
-
-        printf 'Wrote local Git config: %s\n' "$local_config"
     fi
 
-    while IFS= read -r include_path; do
-        if [[ $include_path == "$local_config" || $include_path == "~/.local/gitconfig" ]]; then
-            include_found=true
-            break
+    # Updating the native config happens only in the installer, never at shell startup.
+    git config --global --replace-all user.name "$author_name"
+    git config --global --replace-all user.email "$author_email"
+    if ! git config --global --get-all credential.helper >/dev/null 2>&1; then
+        helper=cache
+        [[ $(uname -s) != Darwin ]] || helper=osxkeychain
+        git config --global credential.helper "$helper"
+    fi
+    printf -v content '# dotbash-git-name: %s\n# dotbash-git-email: %s\n# Shell identity overrides; native ~/.gitconfig also supports GUI clients.\nexport GIT_AUTHOR_NAME=%q\nexport GIT_AUTHOR_EMAIL=%q\nexport GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"\nexport GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"' \
+        "$author_name" "$author_email" "$author_name" "$author_email"
+    write_local_block git "$content"
+}
+
+setup_local() {
+    local user_sgr host_sgr username hostname directory answer current_history history_choice
+    local content prompt_definition legacy_history
+    local local_file="$HOME/.bash_local"
+    local prompt_file="$HOME/.bash_prompt"
+
+    # Preserve a symlink's contents while making the local file independent of Git.
+    if [[ -e $local_file || -L $local_file ]]; then
+        [[ -f $local_file && -r $local_file ]] || {
+            echo 'Error: ~/.bash_local must be a readable regular file.' >&2; return 1;
+        }
+        cp -pL -- "$local_file" "$backup_dir/.bash_local"
+        if [[ -L $local_file ]]; then
+            command rm -- "$local_file"
+            cp -- "$backup_dir/.bash_local" "$local_file"
         fi
-    done < <(git config --global --get-all include.path 2>/dev/null || :)
-
-    if [[ $include_found == false ]]; then
-        git config --global --add include.path "$local_config"
-        printf 'Added Git include: %s\n' "$local_config"
+    else
+        printf '# Private machine settings. Custom code below installer blocks wins.\n' > "$local_file"
     fi
+    chmod 0600 -- "$local_file"
+
+    # Import the old prompt before existing local code so custom PS1 still wins.
+    if [[ -f $prompt_file ]]; then
+        content=$(cat -- "$prompt_file")
+        write_local_block prompt "$content"
+        command mv -- "$prompt_file" "$backup_dir/.bash_prompt"
+    fi
+    answer=y
+    if has_local_prompt; then
+        printf 'Existing local prompt found. Change prompt colors? [y/N] ' >/dev/tty
+        read -r answer </dev/tty || return 1
+    fi
+    if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
+        print_color_menu
+        select_color Username; user_sgr=$SELECTED_SGR
+        select_color Hostname; host_sgr=$SELECTED_SGR
+        username=$(id -un); hostname=$(hostname -s); directory=$(basename -- "$PWD")
+        printf 'Prompt preview: \033[%sm%s\033[0m@\033[%sm%s\033[0m:%s$ command\n' \
+            "$user_sgr" "$username" "$host_sgr" "$hostname" "$directory" >/dev/tty
+        prompt_definition="PS1='\\[\\e[${user_sgr}m\\]\\u\\[\\e[0m\\]@\\[\\e[${host_sgr}m\\]\\h\\[\\e[0m\\]:\\W\\$ '"
+        write_local_block prompt "$prompt_definition"
+    fi
+
+    current_history=$(local_setting history-policy)
+    legacy_history="${XDG_CONFIG_HOME:-$HOME/.config}/dotbash-files/history"
+    if [[ -z $current_history && -r $legacy_history ]]; then
+        IFS= read -r current_history < "$legacy_history" || :
+    fi
+    if ! valid_history "$current_history"; then
+        current_history=''
+    fi
+    answer=y
+    if [[ -n $current_history ]]; then
+        printf 'Existing history setting: %s. Change it? [y/N] ' "$current_history" >/dev/tty
+        read -r answer </dev/tty || return 1
+    fi
+    history_choice=$current_history
+    if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
+        printf '\nBash history:\n  -1       session only; discard history on exit\n   0       never keep command history\n  100-32768 persist that many commands\n' >/dev/tty
+        while true; do
+            printf 'History setting [%s]: ' "${current_history:-1000}" >/dev/tty
+            read -r history_choice </dev/tty || return 1
+            history_choice=${history_choice:-${current_history:-1000}}
+            valid_history "$history_choice" && break
+            echo 'Use -1, 0, or a number from 100 through 32768.' >/dev/tty
+        done
+    fi
+    if [[ $answer == [yY] || $answer == [yY][eE][sS] || -z $(local_setting history-policy) ]]; then
+        case "$history_choice" in
+            -1) content=$'# dotbash-history-policy: -1\nhistory -c\nHISTSIZE=32768\nHISTFILESIZE=0\nHISTFILE=/dev/null' ;;
+            0) content=$'# dotbash-history-policy: 0\nhistory -c\nHISTSIZE=0\nHISTFILESIZE=0\nHISTFILE=/dev/null' ;;
+            *) printf -v content '# dotbash-history-policy: %s\nHISTSIZE=%s\nHISTFILESIZE=%s\nHISTFILE="$HOME/.bash_history"' "$history_choice" "$history_choice" "$history_choice" ;;
+        esac
+        write_local_block history "$content"
+    fi
+    if [[ -f $legacy_history ]]; then
+        command mv -- "$legacy_history" "$backup_dir/history-policy"
+    fi
+    setup_gitconfig
+}
+
+# Leading zeroes are rejected to avoid Bash's octal arithmetic interpretation.
+valid_history() {
+    [[ $1 == -1 || $1 == 0 ]] ||
+        { [[ $1 =~ ^[1-9][0-9]{2,4}$ ]] && (( $1 >= 100 && $1 <= 32768 )); }
+}
+
+has_local_prompt() {
+    grep -Eq '(^|[[:space:];])(export[[:space:]]+)?(PS1|PROMPT_COMMAND)=' "$HOME/.bash_local"
 }
 
 install_user() {
-    local user_sgr
-    local host_sgr
-    local stamp
-    local backup_dir
-    local target
-    local source
-    local command_name
-    local prompt_file
-    local username
-    local hostname
-    local directory
-    local history_config_dir
-    local history_config_file
-    local history_choice
-    local current_history
-    local history_description
-    local change_history
-    local change_prompt
-    local answer
-    local prompt_definition
-    local i
+    local stamp backup_dir target source command_name i answer
+    local bin_dir state_dir manifest legacy_functions_dir
+    local -a sources targets current_commands stale_candidates
 
-    echo "dotbash-files installer"
-
-    prompt_file="$HOME/.bash_prompt"
-    change_prompt=true
-
-    if [[ -e $prompt_file || -L $prompt_file ]]; then
-        echo >/dev/tty
-        printf 'Existing prompt scheme found. Change prompt colors? [y/N] ' >/dev/tty
-        read -r answer </dev/tty || exit 1
-
-        if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
-            change_prompt=true
-        else
-            change_prompt=false
-            echo 'Keeping existing prompt scheme.' >/dev/tty
-        fi
-    fi
-
-    if [[ $change_prompt == true ]]; then
-        print_color_menu
-
-        select_color "Username"
-        user_sgr=$SELECTED_SGR
-
-        select_color "Hostname"
-        host_sgr=$SELECTED_SGR
-
-        username=$(id -un)
-        hostname=$(hostname -s)
-        directory=$(basename -- "$PWD")
-
-        echo >/dev/tty
-        printf 'Prompt preview: \033[%sm%s\033[0m@\033[%sm%s\033[0m:%s$ command\n' \
-            "$user_sgr" "$username" "$host_sgr" "$hostname" "$directory" >/dev/tty
-    fi
-
-    history_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotbash-files"
-    history_config_file="$history_config_dir/history"
-    change_history=true
-    current_history=''
-
-    if [[ -r $history_config_file ]]; then
-        IFS= read -r current_history < "$history_config_file" || current_history=''
-
-        if [[ $current_history == -1 ]]; then
-            history_description='session only; discarded on exit'
-        elif [[ $current_history == 0 ]]; then
-            history_description='disabled'
-        elif [[ $current_history =~ ^[0-9]+$ ]] &&
-             (( current_history >= 100 && current_history <= 32768 )); then
-            history_description="$current_history commands"
-        else
-            history_description='invalid setting; reconfiguration required'
-            current_history=''
-        fi
-
-        if [[ -n $current_history ]]; then
-            echo >/dev/tty
-            printf 'Existing history setting: %s. Change it? [y/N] ' "$history_description" >/dev/tty
-            read -r answer </dev/tty || exit 1
-
-            if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
-                change_history=true
-            else
-                change_history=false
-                history_choice=$current_history
-                echo 'Keeping existing history setting.' >/dev/tty
-            fi
-        fi
-    fi
-
-    if [[ $change_history == true ]]; then
-        echo >/dev/tty
-        echo 'Bash history:' >/dev/tty
-        echo '  -1       session only; discard history on exit' >/dev/tty
-        echo '   0       never keep command history' >/dev/tty
-        echo '  100-32768 persist that many commands' >/dev/tty
-        echo >/dev/tty
-
-        while true; do
-            printf 'History setting [1000]: ' >/dev/tty
-            read -r history_choice </dev/tty || exit 1
-            history_choice=${history_choice:-1000}
-
-            if [[ $history_choice == -1 || $history_choice == 0 ]]; then
-                break
-            fi
-
-            if [[ $history_choice =~ ^[0-9]+$ ]] &&
-               (( history_choice >= 100 && history_choice <= 32768 )); then
-                break
-            fi
-
-            echo 'Invalid history setting. Use -1, 0, or a number from 100 through 32768.' >/dev/tty
-        done
-    fi
-
-    echo >/dev/tty
-    printf 'Continue? [y/N] ' >/dev/tty
+    echo 'dotbash-files installer'
+    printf 'Install/update Bash configuration and local settings? [y/N] ' >/dev/tty
     read -r answer </dev/tty || exit 1
     [[ $answer == [yY] || $answer == [yY][eE][sS] ]] || {
-        echo 'Cancelled.'
-        exit 1
+        echo 'Cancelled.'; exit 1;
     }
 
     stamp=$(date '+%Y%m%d-%H%M%S')
-    backup_dir="$HOME/.bash-backup-$stamp"
+    backup_dir=$(mktemp -d "$HOME/.bash-backup-$stamp.XXXXXXXX") || exit 1
+    chmod 0700 -- "$backup_dir"
 
-    if [[ -e $backup_dir ]]; then
-        printf 'Backup directory already exists: %s\n' "$backup_dir" >&2
-        exit 1
-    fi
-
-    mkdir -- "$backup_dir"
+    setup_local
 
     sources=(
         "$repo_dir/.bashrc"
@@ -433,36 +415,6 @@ install_user() {
 
         ln -s -- "${sources[i]}" "$target"
     done
-
-    if [[ $change_prompt == true ]]; then
-        if [[ -e $prompt_file || -L $prompt_file ]]; then
-            mv -- "$prompt_file" "$backup_dir/.bash_prompt"
-        fi
-
-        prompt_definition="PS1='\\[\\e[${user_sgr}m\\]\\u\\[\\e[0m\\]@\\[\\e[${host_sgr}m\\]\\h\\[\\e[0m\\]:\\W\\$ '"
-        printf '%s\n' "$prompt_definition" > "$prompt_file"
-
-        if ! bash -n "$prompt_file"; then
-            echo "Error: generated prompt is invalid." >&2
-            exit 1
-        fi
-
-        chmod 0644 -- "$prompt_file"
-    fi
-
-    # Create the local override file once, then leave it entirely user-owned.
-    if [[ ! -e $HOME/.bash_local && ! -L $HOME/.bash_local ]]; then
-        : > "$HOME/.bash_local"
-        chmod 0600 -- "$HOME/.bash_local"
-    fi
-
-    if [[ $change_history == true ]]; then
-        mkdir -p -- "$history_config_dir"
-        printf '%s\n' "$history_choice" > "$history_config_file"
-        chmod 0600 -- "$history_config_file"
-    fi
-
-    setup_gitconfig || exit 1
 
     # Retire the old optional-module link/directory from previous installs.
     legacy_functions_dir="$HOME/.bash_functions.d"
@@ -496,7 +448,7 @@ install_user() {
     }
 
     # Names previously installed by this repo. git-clean predates the manifest.
-    stale_candidates=(git-clean)
+    stale_candidates=(git-clean test.sh)
 
     if [[ -r $manifest ]]; then
         while IFS= read -r command_name; do
@@ -536,8 +488,10 @@ install_user() {
     printf 'Installed. Previous files (if any): %s\nOpen a new Bash terminal to load the settings.\n' "$backup_dir"
 }
 
-if (( EUID == 0 )); then
-    install_root
-else
-    install_user
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    if (( EUID == 0 )); then
+        install_root
+    else
+        install_user
+    fi
 fi

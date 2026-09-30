@@ -193,7 +193,7 @@ Current repo-owned programs include:
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
 - `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
-- `server` — serve the current directory in the background with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication and `server --stop` to stop the managed server. It automatically shuts down after the configured idle timeout (30 minutes by default) without an HTTP request.
+- `server` — serve the current directory in the background with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication and `server --stop` to stop the managed server. It automatically shuts down after the configured idle timeout (30 minutes by default) without an HTTP request. Runtime state uses `XDG_RUNTIME_DIR`; logs use `XDG_STATE_HOME` (`~/.local/state/dotbash-files/server.log` by default).
 - `getcerts` — inspect a host's TLS certificate, SANs, issuer, fingerprint, validity, and days until expiration.
 - `digga` — concise DNS lookup wrapper around `dig`.
 - `repo` — open the current Git repository, subdirectory, or file in its remote web interface.

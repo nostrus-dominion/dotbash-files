@@ -1,0 +1,476 @@
+#!/usr/bin/env bash
+# description: Run all installation, dependency, syntax and isolated behavior checks automatically.
+# usage: dotbash-doctor [--check | --help]
+
+set -uo pipefail
+
+usage() {
+    cat <<'HELP'
+Usage: dotbash-doctor [--check | --help]
+  no flag  Run all diagnostics and isolated behavior checks automatically.
+  --check  Repository syntax, executable modes, metadata and optional ShellCheck only.
+Missing optional tools are warnings. Failed checks exit 1; invalid arguments exit 2.
+Behavior checks use temporary fixtures and a temporary home, then clean up.
+The doctor never changes your real settings or sources your private local code.
+HELP
+}
+mode=all
+if (( $# > 1 )); then usage >&2; exit 2; fi
+case ${1:-} in
+    '') ;;
+    --check) mode=check ;;
+    --test) mode=all ;; # Compatibility with the previous invocation.
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+# Follow the installed symlink before locating the checkout, including relative links.
+script=${BASH_SOURCE[0]}
+while [[ -L $script ]]; do
+    link_dir=$(cd -P -- "$(dirname -- "$script")" && pwd) || exit 1
+    script=$(readlink -- "$script") || exit 1
+    [[ $script == /* ]] || script="$link_dir/$script"
+done
+repo_dir=$(cd -P -- "$(dirname -- "$script")/.." && pwd) || exit 1
+failures=0 warnings=0
+ok() { printf 'OK   %s\n' "$*"; }
+warn() { printf 'WARN %s\n' "$*"; warnings=$((warnings + 1)); }
+fail() { printf 'FAIL %s\n' "$*" >&2; failures=$((failures + 1)); }
+
+check_repository() {
+    local file first_line
+    local -a bash_files=() ruby_files=()
+    for file in .bashrc .bash_common .bash_exports .bash_aliases .bash_functions install.sh; do
+        file="$repo_dir/$file"
+        if bash -n "$file"; then bash_files+=("$file"); else fail "Bash syntax: $file"; fi
+    done
+    for file in "$repo_dir"/bin/*; do
+        [[ -f $file ]] || { fail "Invalid command/link: $file"; continue; }
+        [[ -x $file ]] || fail "Not executable: $file"
+        grep -q '^# description:' "$file" || fail "Missing description: $file"
+        grep -q '^# usage:' "$file" || fail "Missing usage: $file"
+        IFS= read -r first_line < "$file" || :
+        case $first_line in
+            '#!/usr/bin/env bash'|'#!/bin/bash')
+                bash -n "$file" || fail "Bash syntax: $file"
+                bash_files+=("$file") ;;
+            '#!/usr/bin/env ruby'|'#!/usr/bin/ruby') ruby_files+=("$file") ;;
+            *) fail "Unsupported command interpreter: $file" ;;
+        esac
+    done
+    if command -v git >/dev/null 2>&1 && git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        while IFS= read -r file; do
+            [[ -z $file ]] || fail "Git executable mode is not 100755: $file"
+        done < <(git -C "$repo_dir" ls-files --stage -- bin/ | awk '$1 != "100755" {print $4}')
+    fi
+    (( failures != 0 )) || ok 'Bash syntax, command metadata and executable permissions'
+    if (( ${#ruby_files[@]} )); then
+        if command -v ruby >/dev/null 2>&1; then
+            for file in "${ruby_files[@]}"; do ruby -c "$file" >/dev/null || fail "Ruby syntax: $file"; done
+        else warn 'ruby missing: git wtf and Ruby syntax checks unavailable'; fi
+    fi
+    if command -v shellcheck >/dev/null 2>&1; then
+        shellcheck -x -e SC1090,SC1091,SC2139 "${bash_files[@]}" && ok ShellCheck || fail ShellCheck
+    else warn 'ShellCheck missing: lint skipped'; fi
+}
+
+check_machine() {
+    local file name resolved tool consumers version spec
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ok '~/.local/bin is on PATH' ;; *) warn '~/.local/bin is absent from PATH; open/reload Bash after installing' ;; esac
+    for file in "$repo_dir"/bin/*; do
+        name=${file##*/}
+        if [[ -L $HOME/.local/bin/$name && ! -e $HOME/.local/bin/$name ]]; then
+            fail "Broken command symlink: $name"
+        elif [[ -e $HOME/.local/bin/$name ]]; then
+            [[ $HOME/.local/bin/$name -ef $file ]] || warn "Installed $name does not point to this checkout; rerun install.sh"
+        else warn "$name is not installed; run bash install.sh"; fi
+        resolved=$(type -P "$name" || :)
+        if [[ -n $resolved && ! $resolved -ef $file ]]; then warn "$name is shadowed on PATH by $resolved"; fi
+    done
+    # Private code is inspected for syntax only, never executed by the doctor.
+    if [[ -f $HOME/.bash_local ]]; then
+        bash -n "$HOME/.bash_local" && ok '~/.bash_local syntax' || fail '~/.bash_local syntax'
+        [[ ! -L $HOME/.bash_local ]] || warn '~/.bash_local is symlinked; installer will make it independent'
+        if [[ $(ls -ld "$HOME/.bash_local" | awk '{print substr($1,5,6)}') != ------ ]]; then warn '~/.bash_local is readable/writable by others; use chmod 600'; fi
+        grep -Eq '(^|[[:space:];])(export[[:space:]]+)?(PS1|PROMPT_COMMAND)=' "$HOME/.bash_local" || warn 'No local prompt assignment found'
+        grep -q '^# dotbash-history-policy:' "$HOME/.bash_local" || warn 'No installer history policy found; shared default is 1000'
+        if grep -Eq '^[[:space:]]*alias[[:space:]]+(server|ports|dotbash-doctor)=' "$HOME/.bash_local"; then
+            warn 'Local aliases may shadow managed commands; use type -a COMMAND in your current shell'
+        fi
+    else warn '~/.bash_local missing; run bash install.sh'; fi
+    for file in "$HOME/.bash_prompt" "$HOME/.local/gitconfig" "${XDG_CONFIG_HOME:-$HOME/.config}/dotbash-files/history"; do
+        [[ ! -e $file && ! -L $file ]] || warn "Legacy settings remain: $file; rerun install.sh to migrate"
+    done
+    for file in .bashrc .bash_common .bash_exports .bash_aliases .bash_functions; do
+        if [[ -L $HOME/$file && ! -e $HOME/$file ]]; then fail "Broken shell symlink: $file"
+        elif [[ -e $HOME/$file && $HOME/$file -ef $repo_dir/$file ]]; then ok "Installed $file"
+        else warn "$file does not point to this checkout"; fi
+    done
+    # Per-command dependencies are optional for the installation as a whole.
+    while IFS='|' read -r tool consumers; do
+        if command -v "$tool" >/dev/null 2>&1; then ok "$tool ($consumers)"; else warn "$tool missing: $consumers"; fi
+    done <<'DEPS'
+python3|server, zipit, ytdl
+ruby|git wtf
+curl|web helpers
+jq|JSON helpers
+dig|digga
+openssl|getcerts
+tar|store, targz, extract
+gzip|targz fallback
+pigz|optional multicore targz compression
+tree|tre
+less|tre and man pager
+ss|ports
+ip|network helpers
+systemctl|comfy (systemd hosts only)
+yt-dlp|ytdl
+ffmpeg|ytdl media processing
+rsync|copy/backup helpers
+bc|calc
+lynx|text browsing
+pygmentize|syntax-highlighted helpers
+unzip|extract .zip
+bzip2|extract .bz2
+xz|extract .tar.xz
+7z|extract .7z
+DEPS
+    if command -v tar >/dev/null 2>&1; then
+        [[ $(tar --version 2>/dev/null) == *'GNU tar'* ]] || command -v gtar >/dev/null 2>&1 || warn 'store requires GNU tar; install gtar on macOS'
+    fi
+    printf '\nRuntime versions:\n'
+    printf '  bash %s\n' "$BASH_VERSION"
+    for spec in python3 node php ruby git; do
+        command -v "$spec" >/dev/null 2>&1 || continue
+        version=$("$spec" --version 2>&1 | head -n 1)
+        printf '  %s\n' "$version"
+    done
+    if command -v git >/dev/null 2>&1; then
+        git config --global --get user.name >/dev/null 2>&1 && git config --global --get user.email >/dev/null 2>&1 && ok 'Native Git identity configured' || warn 'Native Git identity incomplete'
+    fi
+}
+
+# Behavior checks are embedded here; no external test scripts are required.
+# A fresh Bash process keeps errexit effective inside the failure-reporting wrapper.
+check_archives() {
+    bash -s -- "$repo_dir" <<'DOCTOR_ARCHIVES'
+#!/usr/bin/env bash
+# Isolated archive checks. This script is embedded in the doctor.
+set -euo pipefail
+repo_dir=${1:?checkout path required}
+work=$(mktemp -d)
+trap 'command rm -rf -- "$work"' EXIT
+source "$repo_dir/.bash_functions"
+tar_command=tar
+command -v gtar >/dev/null 2>&1 && tar_command=gtar
+mkdir "$work/tree"
+cd "$work/tree"
+printf '#!/bin/sh\nexit 0\n' > executable
+chmod 0751 executable
+printf hidden > .hidden
+ln executable hardlink
+ln -s executable symlink
+mkdir empty
+printf unusual > $'line\nbreak'
+printf dash > ./-dash
+python3 - <<'PY'
+import os, struct
+with open('sparse', 'wb') as f:
+    f.truncate(16777216)
+# Linux exposes POSIX ACLs as a versioned xattr. Test restoration when supported.
+with open('aclfile', 'w') as f:
+    f.write('ACL test')
+acl = struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *entry) for entry in [
+    (1, 6, 0xffffffff), (2, 4, 12345), (4, 0, 0xffffffff),
+    (16, 4, 0xffffffff), (32, 0, 0xffffffff)])
+try:
+    os.setxattr('aclfile', 'system.posix_acl_access', acl)
+except OSError:
+    pass
+try:
+    os.setxattr('executable', 'user.dotbash-test', b'preserved')
+except OSError:
+    pass
+PY
+shopt -s dotglob nullglob
+before=$(shopt -p dotglob nullglob)
+trap ':' USR1
+before_traps=$(trap -p USR1)
+store
+[[ $(shopt -p dotglob nullglob) == "$before" ]]
+[[ $(trap -p USR1) == "$before_traps" ]]
+mkdir "$work/restored"
+"$tar_command" --acls --xattrs --xattrs-include='*' -xf store.tar -C "$work/restored"
+python3 - "$work/restored" <<'PY'
+import os, stat, sys
+root = sys.argv[1]
+assert stat.S_IMODE(os.stat(root + '/executable').st_mode) == 0o751
+assert os.stat(root + '/executable').st_ino == os.stat(root + '/hardlink').st_ino
+assert os.readlink(root + '/symlink') == 'executable'
+assert os.path.isfile(root + '/line\nbreak')
+assert os.path.isdir(root + '/empty')
+assert os.stat(root + '/sparse').st_blocks * 512 < os.stat(root + '/sparse').st_size
+try:
+    expected = os.getxattr('executable', 'user.dotbash-test')
+except OSError:
+    expected = None
+if expected is not None:
+    assert os.getxattr(root + '/executable', 'user.dotbash-test') == expected
+try:
+    acl = os.getxattr('aclfile', 'system.posix_acl_access')
+except OSError:
+    acl = None
+if acl is not None:
+    assert os.getxattr(root + '/aclfile', 'system.posix_acl_access') == acl
+PY
+if store; then echo 'store replaced an existing archive' >&2; exit 1; fi
+command rm store.tar
+zipit
+python3 - <<'PY'
+import stat, zipfile
+with zipfile.ZipFile('zipit.zip') as z:
+    assert all(i.compress_type == zipfile.ZIP_STORED for i in z.infolist())
+    assert '.hidden' in z.namelist() and 'line\nbreak' in z.namelist()
+    assert 'empty/' in z.namelist() and '-dash' in z.namelist()
+    assert stat.S_ISLNK(z.getinfo('symlink').external_attr >> 16)
+    assert all('.dotbash-archive.' not in i.filename for i in z.infolist())
+PY
+if zipit; then echo 'zipit replaced an existing archive' >&2; exit 1; fi
+command rm zipit.zip
+mkdir "$work/dates"
+cd "$work/dates"
+mkdir olddir
+printf old > olddir/old
+printf new > olddir/new
+printf old > $'old\nname'
+python3 - <<'PY'
+import os
+for path in ('olddir/old', 'old\nname', 'olddir'):
+    os.utime(path, (1577836800, 1577836800))
+PY
+store '2021-01-01 UTC'
+zipit '2021-01-01 UTC'
+python3 - <<'PY'
+import tarfile, zipfile
+with tarfile.open('store.tar') as t:
+    names = [n.removeprefix('./') for n in t.getnames()]
+    assert 'olddir/old' in names and 'olddir/new' not in names and 'old\nname' in names
+with zipfile.ZipFile('zipit.zip') as z:
+    assert 'olddir/old' in z.namelist() and 'olddir/new' not in z.namelist() and 'old\nname' in z.namelist()
+PY
+mkdir "$work/tarball"
+cd "$work/tarball"
+printf data > .hidden
+printf data > .DS_Store
+targz .
+[[ -f $work/tarball.tar.gz && ! -e tarball.tar.gz ]]
+mkdir "$work/extracted"
+cd "$work/extracted"
+extract "$work/tarball.tar.gz"
+[[ -f tarball/.hidden && -f tarball/.DS_Store ]]
+# Pipeline failure must not leave a final archive or alter caller options.
+cd "$work/tarball"
+command rm "$work/tarball.tar.gz"
+gzip() { return 9; }
+pigz() { return 9; }
+if targz .; then echo 'targz accepted a failed compressor' >&2; exit 1; fi
+unset -f gzip pigz
+[[ ! -e $work/tarball.tar.gz ]]
+[[ -z $(find "$work" -name '.dotbash-archive.*' -print) ]]
+mkdir "$work/links"
+cd "$work/links"
+ln -s missing store.tar
+if store; then echo 'store replaced a dangling output symlink' >&2; exit 1; fi
+ln -s missing zipit.zip
+if zipit; then echo 'zipit replaced a dangling output symlink' >&2; exit 1; fi
+printf 'Archive metadata, date filters, subshell isolation and cleanup: OK\n'
+DOCTOR_ARCHIVES
+}
+
+check_installer() (
+    local work
+    work=$(mktemp -d) || return 1
+    trap 'command rm -rf -- "$work"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
+    python3 - "$repo_dir" "$work" <<'DOCTOR_INSTALLER'
+"""Run the real user installer with an isolated HOME and controlling terminal."""
+import errno
+import fcntl
+import os
+from pathlib import Path
+import pty
+import select
+import shutil
+import subprocess
+import sys
+import termios
+import time
+
+repo, scratch = map(Path, sys.argv[1:])
+home = scratch / 'home'
+home.mkdir()
+env = os.environ.copy()
+for key in list(env):
+    if key.startswith('GIT_'):
+        env.pop(key)
+env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'),
+           XDG_STATE_HOME=str(home / '.local/state'), TERM='xterm', LC_ALL='C')
+
+def install(answers):
+    master, slave = pty.openpty()
+    def terminal():
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+    process = subprocess.Popen(['bash', '-c', 'source "$1/install.sh"; install_user', 'test', str(repo)],
+                               stdin=slave, stdout=slave, stderr=slave, env=env,
+                               cwd=repo, preexec_fn=terminal)
+    os.close(slave)
+    # Answers queue in the terminal; read /dev/tty consumes them normally.
+    os.write(master, ('\n'.join(answers) + '\n').encode())
+    output = b''
+    deadline = time.monotonic() + 20
+    try:
+        while True:
+            if time.monotonic() > deadline:
+                process.kill()
+                raise AssertionError('Installer timed out: ' + output.decode(errors='replace'))
+            ready, _, _ = select.select([master], [], [], .1)
+            if ready:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError as error:
+                    if error.errno == errno.EIO:
+                        break
+                    raise
+                if not chunk:
+                    break
+                output += chunk
+            elif process.poll() is not None:
+                break
+        assert process.wait(timeout=2) == 0, output.decode(errors='replace')
+    finally:
+        os.close(master)
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+    return output.decode(errors='replace')
+
+def git(*args):
+    return subprocess.check_output(['git', *args], env=env, text=True).strip()
+
+# Legacy installation with a local override that must continue to win.
+(home / '.bash_prompt').write_text("PS1='legacy prompt> '\n")
+config = home / '.config/dotbash-files'
+config.mkdir(parents=True)
+(config / 'history').write_text('-1\n')
+(home / '.local').mkdir()
+(home / '.local/gitconfig').write_text('[user]\n name = Test User\n email = test@example.invalid\n[credential]\n helper = cache\n helper = custom-helper\n[alias]\n hi = status --short\n')
+(home / '.gitconfig').write_text(f'[include]\n path = {home}/.local/gitconfig\n[credential]\n helper = native-helper\n[core]\n editor = vim\n')
+(home / '.bash_local').write_text("# Keep this private code exactly\nPS1='my override> '\nalias personal='true'\n")
+# User declines changing prompt, history, and Git identity.
+install(['y', 'n', 'n', 'n'])
+local = home / '.bash_local'
+first = local.read_bytes()
+assert b"PS1='my override> '" in first
+assert local.stat().st_mode & 0o777 == 0o600
+assert not (home / '.bash_prompt').exists()
+assert not (config / 'history').exists()
+assert not (home / '.local/gitconfig').exists()
+assert git('config', '--global', '--get', 'core.editor') == 'vim'
+assert git('config', '--global', '--get', 'alias.hi') == 'status --short'
+assert git('config', '--global', '--get-all', 'credential.helper').splitlines() == ['native-helper', 'cache', 'custom-helper']
+assert subprocess.run(['git', 'config', '--global', '--get-all', 'include.path'], env=env, capture_output=True).returncode == 1
+# Bash startup must apply the user override last, and session-only history.
+result = subprocess.check_output(['bash', '--noprofile', '--rcfile', str(home / '.bashrc'), '-ic',
+                                 'printf "%s|%s|%s|%s" "$PS1" "$HISTFILE" "$HISTSIZE" "$GIT_AUTHOR_NAME"'],
+                                env=env, stderr=subprocess.DEVNULL, text=True)
+assert result == 'my override> |/dev/null|32768|Test User', result
+# Backups use mktemp suffixes, so back-to-back installs are supported.
+install(['y', 'n', 'n', 'n'])
+assert local.read_bytes() == first, 'Unchanged settings modified private local code'
+assert (home / '.local/bin/dotbash-doctor').is_symlink()
+assert not (home / '.local/bin/test.sh').exists()
+reference = subprocess.check_output([str(home / '.local/bin/my-commands')], env=env, text=True)
+assert all(name in reference for name in ('zipit', 'store', 'targz', 'dotbash-doctor'))
+assert '_dotbash_bundle' not in reference
+# Exercise both zero and bounded history choices, keeping custom content.
+for choice in ('0', '32768'):
+    install(['y', 'n', 'y', choice, 'n'])
+    result = subprocess.check_output(['bash', '--noprofile', '--rcfile', str(home / '.bashrc'), '-ic',
+                                     'printf "%s|%s" "$HISTSIZE" "$HISTFILE"'], env=env,
+                                    stderr=subprocess.DEVNULL, text=True)
+    assert result == (f'0|/dev/null' if choice == '0' else f'32768|{home}/.bash_history'), result
+# Doctor through the installed symlink must locate the checkout from any CWD.
+subprocess.run([str(home / '.local/bin/dotbash-doctor'), '--check'], cwd=scratch,
+               env=env, check=True, stdout=subprocess.DEVNULL)
+
+# Fresh install, preserving default colors/history/identity on the next run.
+home = scratch / 'fresh-home'
+home.mkdir()
+env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'),
+           XDG_STATE_HOME=str(home / '.local/state'), GIT_CONFIG_NOSYSTEM='1')
+install(['y', '1', '4', '1000', 'Fresh User', 'fresh@example.invalid'])
+fresh = (home / '.bash_local').read_bytes()
+assert b'PS1=' in fresh and b'HISTSIZE=1000' in fresh
+install(['y', 'n', 'n', 'n'])
+assert (home / '.bash_local').read_bytes() == fresh
+assert git('config', '--global', '--get', 'user.name') == 'Fresh User'
+assert not (home / '.bash_prompt').exists()
+
+# Regression: Bash checks must not silently ignore files after the first argument.
+copy = scratch / 'broken-checkout'
+shutil.copytree(repo, copy, ignore=shutil.ignore_patterns('.git'))
+for name in ('.bash_exports', '.bash_functions'):
+    with (copy / name).open('a') as f:
+        f.write('\nif then\n')
+result = subprocess.run([str(copy / 'bin/dotbash-doctor'), '--check'], env=env,
+                        capture_output=True, text=True)
+assert result.returncode == 1
+assert '.bash_exports' in result.stderr and '.bash_functions' in result.stderr
+DOCTOR_INSTALLER
+)
+
+run_behavior_checks() {
+    local output tool missing=false tar_bin=tar date_bin=date find_bin=find
+    for tool in python3 bash mktemp; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            warn "$tool missing: isolated behavior checks skipped"
+            missing=true
+        fi
+    done
+    [[ $missing == false ]] || return 0
+
+    # Each group is independent so an unavailable archive dependency does not
+    # prevent installation/migration checks from running.
+    command -v gtar >/dev/null 2>&1 && tar_bin=gtar
+    command -v gdate >/dev/null 2>&1 && date_bin=gdate
+    command -v gfind >/dev/null 2>&1 && find_bin=gfind
+    if [[ $("$tar_bin" --version 2>/dev/null) != *'GNU tar'* ||
+          $("$date_bin" --version 2>/dev/null) != *'GNU coreutils'* ||
+          $("$find_bin" --version 2>/dev/null) != *'GNU findutils'* ]] ||
+          { ! command -v gzip >/dev/null 2>&1 && ! command -v pigz >/dev/null 2>&1; }; then
+        warn 'Archive behavior checks skipped: GNU tar/find/date and gzip/pigz are required'
+    elif output=$(check_archives 2>&1); then
+        ok 'Archive metadata, date filters, subshell isolation and failure cleanup'
+    else
+        fail 'Archive behavior checks'
+        printf '%s\n' "$output" >&2
+    fi
+    if ! command -v git >/dev/null 2>&1; then
+        warn 'git missing: installer behavior checks skipped'
+    elif output=$(check_installer 2>&1); then
+        ok 'Fresh/repeated installation, migration, local overrides and history policies'
+    else
+        fail 'Installer behavior checks'
+        printf '%s\n' "$output" >&2
+    fi
+}
+
+check_repository
+if [[ $mode == all ]]; then
+    check_machine
+    run_behavior_checks
+fi
+printf '\nDoctor: %d failure(s), %d warning(s).\n' "$failures" "$warnings"
+(( failures == 0 ))

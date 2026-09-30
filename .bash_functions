@@ -11,7 +11,7 @@
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd rm 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -473,6 +473,25 @@ rsync() {
     fi
 
     return "$exitCode"
+}
+
+# Display man pages with colorized headings and emphasis.
+man() {
+    local man_bin
+    man_bin=$(type -P man) || {
+        echo 'Error: man is not installed or not in PATH.' >&2
+        return 1
+    }
+
+    env \
+        LESS_TERMCAP_mb="$(printf '\e[1;31m')" \
+        LESS_TERMCAP_md="$(printf '\e[1;31m')" \
+        LESS_TERMCAP_me="$(printf '\e[0m')" \
+        LESS_TERMCAP_se="$(printf '\e[0m')" \
+        LESS_TERMCAP_so="$(printf '\e[1;44;33m')" \
+        LESS_TERMCAP_ue="$(printf '\e[0m')" \
+        LESS_TERMCAP_us="$(printf '\e[1;32m')" \
+        "$man_bin" "$@"
 }
 
 # Colorize a source file with pygmentize and view it with less.

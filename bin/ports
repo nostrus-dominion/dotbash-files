@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+# description: List, inspect, or free listening TCP/UDP ports.
+# usage: ports [--free] [port]
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ports
+  ports <port>
+  ports -f <port>
+  ports --free <port>
+
+Commands:
+  ports               List listening TCP/UDP sockets.
+  ports <port>        Inspect one listening TCP/UDP port.
+  ports -f <port>     Gracefully terminate processes using the port.
+  ports --free <port> Same as -f.
+  ports -h, --help    Show this help.
+
+The command runs as your normal user and authenticates with sudo only when
+another user's process requires elevated inspection or termination.
+EOF
+}
+
+validate_port() {
+    local value=$1
+
+    if [[ ! $value =~ ^[0-9]+$ || ${#value} -gt 5 ]]; then
+        return 1
+    fi
+
+    local number=$((10#$value))
+    (( number >= 1 && number <= 65535 ))
+}
+
+SS_BIN=$(command -v ss || true)
+KILL_BIN=$(type -P kill || true)
+
+[[ -n $SS_BIN ]] || {
+    echo 'Error: ss is not installed or not in PATH.' >&2
+    exit 1
+}
+
+if [[ -z $KILL_BIN ]]; then
+    if [[ -x /bin/kill ]]; then
+        KILL_BIN=/bin/kill
+    elif [[ -x /usr/bin/kill ]]; then
+        KILL_BIN=/usr/bin/kill
+    fi
+fi
+
+socket_rows() {
+    local port=$1
+    "$SS_BIN" -H -tulnp "sport = :$port" 2>/dev/null
+}
+
+rows_have_hidden_processes() {
+    grep -qv 'users:('
+}
+
+require_privilege() {
+    if (( EUID == 0 )); then
+        return 0
+    fi
+
+    command -v sudo >/dev/null 2>&1 || {
+        echo 'Error: sudo is required for this operation but is not installed.' >&2
+        return 1
+    }
+
+    if sudo -n true 2>/dev/null; then
+        return 0
+    fi
+
+    echo 'Elevated privileges are required; authenticating with sudo...'
+
+    if [[ -r /dev/tty ]]; then
+        sudo -v </dev/tty
+    else
+        sudo -v
+    fi
+}
+
+run_privileged() {
+    if (( EUID == 0 )); then
+        "$@"
+    else
+        sudo -- "$@"
+    fi
+}
+
+privileged_socket_rows() {
+    local port=$1
+    run_privileged "$SS_BIN" -H -tulnp "sport = :$port"
+}
+
+show_port() {
+    local port=$1
+    local rows
+
+    rows=$(socket_rows "$port")
+
+    if [[ -z $rows ]]; then
+        printf 'Nothing is listening on TCP/UDP port %s.\n' "$port"
+        return 1
+    fi
+
+    if (( EUID != 0 )) && printf '%s\n' "$rows" | rows_have_hidden_processes; then
+        printf 'Port %s is listening, but process details are hidden from this user.\n' "$port"
+        require_privilege || return 1
+        echo
+        run_privileged "$SS_BIN" -tulnp "sport = :$port"
+        return
+    fi
+
+    "$SS_BIN" -tulnp "sport = :$port"
+}
+
+free_port() {
+    local port=$1
+    local rows
+    local pids
+    local pid
+    local elevated=false
+
+    rows=$(socket_rows "$port")
+
+    if [[ -z $rows ]]; then
+        printf 'Port %s is already free.\n' "$port"
+        return 0
+    fi
+
+    if (( EUID != 0 )) && printf '%s\n' "$rows" | rows_have_hidden_processes; then
+        printf 'Port %s is in use, but process details are hidden from this user.\n' "$port"
+        require_privilege || return 1
+        elevated=true
+        rows=$(privileged_socket_rows "$port") || return 1
+        echo
+    fi
+
+    echo "Processes using port $port:"
+    if [[ $elevated == true ]]; then
+        run_privileged "$SS_BIN" -tulnp "sport = :$port"
+    else
+        "$SS_BIN" -tulnp "sport = :$port"
+    fi
+    echo
+
+    pids=$(
+        printf '%s\n' "$rows" |
+            grep -oE 'pid=[0-9]+' |
+            cut -d= -f2 |
+            sort -u
+    )
+
+    if [[ -z $pids ]]; then
+        printf 'Unable to determine the process ID using port %s.\n' "$port" >&2
+        return 1
+    fi
+
+    [[ -n $KILL_BIN ]] || {
+        echo 'Error: kill executable was not found.' >&2
+        return 1
+    }
+
+    while IFS= read -r pid; do
+        [[ -n $pid ]] || continue
+        printf 'Sending TERM to PID %s...\n' "$pid"
+
+        if [[ $elevated == true ]]; then
+            if ! run_privileged "$KILL_BIN" -TERM "$pid"; then
+                printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
+            fi
+            continue
+        fi
+
+        if "$KILL_BIN" -TERM "$pid" 2>/dev/null; then
+            continue
+        fi
+
+        if (( EUID == 0 )); then
+            printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
+            continue
+        fi
+
+        printf 'PID %s requires elevated privileges.\n' "$pid"
+        require_privilege || return 1
+        elevated=true
+
+        if ! run_privileged "$KILL_BIN" -TERM "$pid"; then
+            printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
+        fi
+    done <<< "$pids"
+
+    sleep 1
+    rows=$(socket_rows "$port")
+
+    if [[ -z $rows ]]; then
+        printf 'Port %s is now free.\n' "$port"
+        return 0
+    fi
+
+    echo
+    printf 'Port %s is still in use. The process may have restarted or been replaced:\n' "$port"
+
+    if (( EUID != 0 )) && printf '%s\n' "$rows" | rows_have_hidden_processes; then
+        if require_privilege; then
+            run_privileged "$SS_BIN" -tulnp "sport = :$port"
+        else
+            "$SS_BIN" -tulnp "sport = :$port"
+        fi
+    else
+        "$SS_BIN" -tulnp "sport = :$port"
+    fi
+
+    echo
+    echo 'If this port belongs to a managed service, stop the service instead.'
+    return 1
+}
+
+case "${1:-}" in
+    -h|--help)
+        (( $# == 1 )) || {
+            usage >&2
+            exit 2
+        }
+        usage
+        ;;
+
+    -f|--free)
+        (( $# == 2 )) || {
+            usage >&2
+            exit 2
+        }
+
+        validate_port "$2" || {
+            echo 'Port must be between 1 and 65535.' >&2
+            exit 2
+        }
+
+        free_port "$((10#$2))"
+        ;;
+
+    "")
+        (( $# == 0 )) || {
+            usage >&2
+            exit 2
+        }
+        "$SS_BIN" -tulnp
+        ;;
+
+    *)
+        (( $# == 1 )) || {
+            usage >&2
+            exit 2
+        }
+
+        validate_port "$1" || {
+            echo 'Port must be between 1 and 65535.' >&2
+            exit 2
+        }
+
+        show_port "$((10#$1))"
+        ;;
+esac

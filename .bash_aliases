@@ -9,6 +9,8 @@ alias .3='cd ../../../'
 alias .4='cd ../../../../'
 alias .5='cd ../../../../..'
 alias .r='cd /'
+alias tree="tree --dirsfirst -pughs"
+alias tre='command tree -aC -I ".git|node_modules|bower_components" --dirsfirst | less -FRNX'
 
 # safety nets
 alias chgrp='chgrp --preserve-root'
@@ -38,7 +40,6 @@ alias cls='clear'
 alias apt-full-upgrade='sudo apt-get update && sudo apt-get upgrade && sudo apt-get dist-upgrade && sudo apt autoclean && sudo apt autoremove'
 alias apt-clean='sudo apt-get autoclean && sudo apt-get autoremove'
 alias path='echo -e ${PATH//:/\\n}'
-alias server='python3 -m http.server'
 alias lsblk='lsblk -e 7'
 alias alldisks='ls -lF /dev/disk/by-id/'
 alias top='htop'

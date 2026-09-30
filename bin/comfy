@@ -1,8 +1,12 @@
-# Source from ~/.bash_functions; Bash functions require Bash.
+#!/usr/bin/env bash
+# description: Manage the ComfyUI service or create a rebuild backup.
+# usage: comfy [--restart|--stop|--backup|--help]
+
 # ComfyUI systemd service management.
 comfy() {
     local action="start"
     local service="comfyui.service"
+    local wait_for_ready=false
 
     case "${1:-}" in
         -r|--restart)
@@ -21,9 +25,10 @@ Usage: comfy [option]
   (none)          Start ComfyUI
   -r, --restart   Restart ComfyUI
   -s, --stop      Stop ComfyUI
+      --backup    Create the ComfyUI rebuild backup
   -h, --help      Show this help
 
-The service URL and status are shown after the action.
+The service URL and status are shown after service actions.
 EOF
             return 0
             ;;
@@ -46,12 +51,14 @@ EOF
             else
                 echo "Starting ComfyUI service..."
                 systemctl start "$service" || return 1
+                wait_for_ready=true
             fi
             ;;
 
         restart)
             echo "Restarting ComfyUI service..."
             systemctl restart "$service" || return 1
+            wait_for_ready=true
             ;;
 
         stop)
@@ -75,9 +82,7 @@ EOF
         echo
         echo "ComfyUI: $comfyURL"
 
-        # If we started/restarted ComfyUI, wait for the web server
-        # to become available before opening the browser.
-        if [[ "$action" == "start" || "$action" == "restart" ]]; then
+        if [[ "$wait_for_ready" == true ]]; then
             printf "Waiting for ComfyUI"
 
             for _ in {1..30}; do
@@ -95,6 +100,10 @@ EOF
             done
 
             echo
+        elif [[ "$action" == "start" ]]; then
+            echo "Opening ComfyUI..."
+            xdg-open "$comfyURL" >/dev/null 2>&1 &
+            disown
         fi
     fi
 
@@ -458,9 +467,9 @@ EOF
         cp "$HOME/.bash_functions" \
             "$STAGE/shell/bash_functions"
     fi
-    if [[ -d "$HOME/.bash_functions.d" ]]; then
-        mkdir -p "$STAGE/shell/bash_functions.d"
-        cp -a "$HOME/.bash_functions.d/." "$STAGE/shell/bash_functions.d/"
+    if [[ -x "$HOME/.local/bin/comfy" ]]; then
+        mkdir -p "$STAGE/shell"
+        cp "$HOME/.local/bin/comfy" "$STAGE/shell/comfy"
     fi
 
     # ------------------------------------------------------------
@@ -514,6 +523,7 @@ Contents:
 
   shell/
       bash_functions
+      comfy
 
 ============================================================
 BASIC RESTORE
@@ -623,3 +633,18 @@ EOF
     echo "  tar --zstd -tf \"$ARCHIVE\" | less"
     echo
 }
+
+
+case "${1:-}" in
+    --backup)
+        shift
+        if (( $# != 0 )); then
+            echo "Usage: comfy --backup" >&2
+            exit 2
+        fi
+        comfy-backup
+        ;;
+    *)
+        comfy "$@"
+        ;;
+esac

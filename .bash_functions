@@ -3,16 +3,15 @@
 # Personal Bash utility functions.
 #
 # Optional dependencies used by individual functions:
-#   bc, curl, ffmpeg, git, jq, lsof, lynx, pygmentize, rsync, 7z
+#   bc, curl, jq, lynx, pygmentize, rsync, 7z
 #   tar, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
-#   yt-dlp (see .bash_functions.d/ytdl.bash)
 #
 # File managers supported by open():
 #   dolphin, nautilus, thunar, pcmanfm
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact ports rm 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -39,33 +38,16 @@ default-interface() {
     printf '%s\n' "$interface"
 }
 
+# Run dnstop on the default IPv4 interface unless one is specified.
 dnstop() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command dnstop -l 5 "$interface"; }
+# Show ethtool information for the default IPv4 interface unless one is specified.
 ethtool() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command ethtool "$interface"; }
+# Run iftop on the default IPv4 interface unless one is specified.
 iftop() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command iftop -i "$interface"; }
+# Capture packets on the default IPv4 interface unless one is specified.
 tcpdump() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command tcpdump -i "$interface"; }
+# Show vnStat data for the default IPv4 interface unless one is specified.
 vnstat() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command vnstat -i "$interface"; }
-
-# Show listening TCP/UDP sockets, optionally restricted to a local port.
-ports() {
-    if (( $# > 1 )) || { (( $# == 1 )) && [[ ! $1 =~ ^[0-9]+$ ]]; }; then
-        echo 'Usage: ports [port]' >&2
-        return 2
-    fi
-    if (( $# == 0 )); then
-        ss -tulnp
-        return
-    fi
-    if (( ${#1} > 5 )); then
-        echo 'Port must be between 1 and 65535.' >&2
-        return 2
-    fi
-    local port=$((10#$1))
-    if (( port < 1 || port > 65535 )); then
-        echo 'Port must be between 1 and 65535.' >&2
-        return 2
-    fi
-    ss -tulnp "sport = :$port"
-}
 
 # Show local IPv4 addresses and the public IPv4 address.
 myip() {
@@ -161,6 +143,7 @@ weather() {
     fi
 }
 
+# Catch a mistyped sudo and offer to run the intended command.
 suod() {
     read -rp "Did you mean sudo? [y/N] " answer
 
@@ -186,6 +169,25 @@ mkcd() {
     cd -P -- "$1" || return 1
 }
 
+# Create a temporary directory and enter it.
+tmpd() {
+    if (( $# > 1 )); then
+        echo 'Usage: tmpd [name]' >&2
+        return 2
+    fi
+
+    local directory
+
+    if (( $# == 0 )); then
+        directory=$(mktemp -d) || return 1
+    else
+        directory=$(mktemp -d -t "$1.XXXXXXXXXX") || return 1
+    fi
+
+    cd -P -- "$directory" || return 1
+}
+
+# Protect recursive force-deletes with an explicit confirmation.
 rm() {
     local recursive=false
     local force=false
@@ -416,57 +418,6 @@ fixtime() {
 # Process and system utilities
 # ============================================================================
 
-# Find processes using a TCP/UDP port and terminate them gracefully.
-freeport() {
-    if [[ $# -ne 1 || ! "$1" =~ ^[0-9]+$ || "$1" -lt 1 || "$1" -gt 65535 ]]; then
-        echo "Usage: freeport <port>"
-        return 1
-    fi
-
-    local port="$1"
-    local pids
-
-    if ! command -v lsof &>/dev/null; then
-        echo "Error: lsof is not installed or not in PATH." >&2
-        return 1
-    fi
-
-    pids=$(lsof -t -i :"$port" 2>/dev/null | sort -u)
-
-    if [[ -z "$pids" ]]; then
-        echo "No process found using port $port."
-        return 0
-    fi
-
-    echo "Processes using port $port:"
-    lsof -nP -i :"$port"
-    echo
-
-    local pid
-    for pid in $pids; do
-        printf 'Sending TERM to PID %s...\n' "$pid"
-        kill "$pid" 2>/dev/null || {
-            printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
-        }
-    done
-
-    sleep 1
-
-    local remaining
-    remaining=$(lsof -t -i :"$port" 2>/dev/null | sort -u)
-
-    if [[ -z "$remaining" ]]; then
-        echo "Port $port is now free."
-        return 0
-    fi
-
-    echo "Port $port is still in use:"
-    lsof -nP -i :"$port"
-    echo
-    echo "If necessary, terminate the remaining process(es) manually."
-    return 1
-}
-
 # Show the top 10 commands from Bash history.
 history10() {
     echo "Top 10 most commonly used commands:"
@@ -522,6 +473,25 @@ rsync() {
     fi
 
     return "$exitCode"
+}
+
+# Display man pages with colorized headings and emphasis.
+man() {
+    local man_bin
+    man_bin=$(type -P man) || {
+        echo 'Error: man is not installed or not in PATH.' >&2
+        return 1
+    }
+
+    env \
+        LESS_TERMCAP_mb="$(printf '\e[1;31m')" \
+        LESS_TERMCAP_md="$(printf '\e[1;31m')" \
+        LESS_TERMCAP_me="$(printf '\e[0m')" \
+        LESS_TERMCAP_se="$(printf '\e[0m')" \
+        LESS_TERMCAP_so="$(printf '\e[1;44;33m')" \
+        LESS_TERMCAP_ue="$(printf '\e[0m')" \
+        LESS_TERMCAP_us="$(printf '\e[1;32m')" \
+        "$man_bin" "$@"
 }
 
 # Colorize a source file with pygmentize and view it with less.
@@ -614,7 +584,7 @@ up() {
 }
 
 # ============================================================================
-# Services
+# Python environments
 # ============================================================================
 
 # Create and activate a Python virtual environment in this shell.
@@ -667,12 +637,3 @@ pyact() {
             ;;
     esac
 }
-
-
-# Optional machine-specific commands. Install this directory beside this file.
-for _bash_functions_module in "$HOME"/.bash_functions.d/*.bash; do
-    [[ -f "$_bash_functions_module" ]] || continue
-    # shellcheck source=/dev/null
-    source "$_bash_functions_module"
-done
-unset _bash_functions_module

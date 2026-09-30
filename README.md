@@ -1,69 +1,210 @@
 # dotbash-files
 
-*One set of shortcuts. Several machines. Distinct prompt colors so you know which server you're about to bother.*
+*One Bash setup, several machines, and fewer mystery commands six months from now.*
 
-The shared Bash setup lives at the repository root. Host files contain only the prompt and settings specific to that machine. CORSAIR's ComfyUI and `yt-dlp` commands live in optional Bash modules.
+The repository separates environment, shell behavior, shell-local helpers, and standalone commands:
 
 ```text
 dotbash-files/
+├── bin/
+│   ├── getcerts
+│   ├── comfy
+│   ├── digga
+│   ├── git-check-clean
+│   ├── git-reset-repo
+│   ├── my-commands
+│   ├── ports
+│   ├── repo
+│   ├── server
+│   └── ytdl
+├── .bashrc
 ├── .bash_common
+├── .bash_exports
 ├── .bash_aliases
 ├── .bash_functions
-├── .bash_functions.d/
-│   ├── comfy.bash
-│   └── ytdl.bash
-├── hosts/
-│   ├── corsair.bashrc
-│   ├── jumpbox.bashrc
-│   ├── media-server.bashrc
-│   ├── seedbox.bashrc
-│   └── thevault.bashrc
-├── root.bashrc
 ├── install.sh
+├── test.sh
+├── Makefile
 └── README.md
 ```
 
-`.bash_common` holds settings that used to appear in every host file: history, window-size updates, `lesspipe`, color support, standard `ls` aliases, loading `.bash_aliases` and `.bash_functions`, and programmable completion. Each host's `.bashrc` sources it, then sets its prompt and any host-specific commands. The root prompt is separate and is not installed by `install.sh`.
+## What goes where
 
-## Commands
+- `.bashrc` — generic interactive entry point.
+- `.bash_exports` — exported environment variables and PATH setup.
+- `.bash_common` — history, colors, completion, NVM initialization, loading shared Bash files, and finally optional `~/.bash_local` overrides.
+- `.bash_aliases` — simple command substitutions.
+- `.bash_functions` — commands that must affect the current shell, such as changing directory, activating a virtual environment, or reading Bash history.
+- `bin/` — standalone programs installed into `~/.local/bin`.
 
-| Command | What it does |
-| --- | --- |
-| `please` | Displays the previous history command and asks before running it with `sudo bash` |
-| `mkcd NAME` | Creates and enters a directory |
-| `extract ARCHIVE` | Extracts common archive formats, including paths with spaces |
-| `freeport PORT` | Lists processes using a port and sends TERM |
-| `default-interface` | Finds the default IPv4 network interface |
-| `iftop`, `tcpdump`, `vnstat`, `ethtool`, `dnstop` | Use that interface unless you specify another |
-| `ports [PORT]` | Displays listening TCP/UDP sockets, optionally for one port |
-| `myip` | Shows local and public IPv4 addresses |
-| `largest [DIR]` | Lists the 20 largest files under `DIR`, or the current directory |
-| `git-clean` | Shows branch and working-tree status; returns an error if there are changes |
-| `mkvenv [DIR]` | Creates and activates a new Python virtual environment (default `venv`) |
-| `pyact` | Finds a `venv*/bin/activate` and asks before activating |
-| `comfy`, `comfy-backup`, `ytdl` | Optional CORSAIR-specific commands |
-| `reset-master-branch` | Guarded reset and force-with-lease push to `origin/master` |
+If a command does not need to modify the current Bash process, it should normally live in `bin/`.
 
-Read what `please` displays before approving: shell substitutions and operators in your previous command will run with sudo. `comfy` and `ytdl` assume CORSAIR's paths and software are installed.
+## Prompt
+
+Normal-user installs generate `~/.bash_prompt`. The installer asks for separate username and hostname colors and keeps the prompt layout fixed:
+
+```text
+user@host:dir$ command
+```
+
+Only the username and hostname are colored. The separator, current directory, dollar sign, trailing space, and command text use the terminal's normal color.
+
+The installer includes named ANSI colors plus a custom ANSI-256 option.
+
+## Environment and NVM
+
+Shared exports live in `.bash_exports`, including the editor settings, `~/.local/bin` PATH setup, and:
+
+```bash
+export NVM_DIR="$HOME/.nvm"
+```
+
+`.bash_common` loads NVM only when its files exist:
+
+```bash
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    source "$NVM_DIR/nvm.sh"
+fi
+
+if [[ -s "$NVM_DIR/bash_completion" ]]; then
+    source "$NVM_DIR/bash_completion"
+fi
+```
+
+Machines without NVM simply skip those files.
+
+
+## Local overrides
+
+`~/.bash_local` is an optional user-owned file for machine-specific, private, or experimental configuration. The installer never creates, links, backs up, or overwrites it.
+
+Examples:
+
+```bash
+export SOME_PRIVATE_VAR="..."
+alias media='ssh media-server'
+export PATH="$HOME/special-tools/bin:$PATH"
+```
+
+Because it is sourced last by `.bash_common`, local settings can intentionally override the shared configuration.
+
+## Command reference
+
+Run:
+
+```bash
+my-commands
+```
+
+The reference builds itself at runtime. It reads aliases from `~/.bash_aliases`, function descriptions from comments in `~/.bash_functions`, and standalone commands directly from this repository's `bin/` directory. It does **not** scan every executable in `~/.local/bin`, so commands installed by unrelated applications are not mixed into the list.
+
+For shell functions, put a useful comment immediately above the function:
+
+```bash
+# Create a directory and enter it.
+mkcd() {
+    ...
+}
+```
+
+Standalone commands use two lightweight metadata headers:
+
+```bash
+#!/usr/bin/env bash
+# description: Check whether the current Git working tree is clean.
+# usage: git check-clean
+```
+
+Adding a new alias, documented function, or `bin/` command does not require editing `my-commands`.
 
 ## Install
 
-Clone or extract the repository somewhere you intend to keep it. `install.sh` creates links into that directory, so moving or deleting the directory later will break those links. Run the installer **as your own user**, not with sudo:
+For a normal user:
 
 ```bash
-bash install.sh corsair
+bash install.sh
 ```
 
-Supported names: `corsair`, `jumpbox`, `media-server`, `seedbox`, and `thevault`. With no argument the installer uses your short hostname if it matches one of these names. It shows the chosen host and asks for confirmation. Existing `~/.bashrc`, `~/.bash_common`, `~/.bash_aliases`, `~/.bash_functions`, and `~/.bash_functions.d` entries are moved into a timestamped `~/.bash-backup-*` directory before links are installed. Open a new Bash session afterward.
+The installer asks for username and hostname colors, shows a prompt preview, and then installs the shared configuration.
 
-To restore your previous configuration, move the backed-up files from that directory back into your home directory after removing the links. A backup folder is created even on a fresh account, where it may be empty.
+It:
 
-The installer links the optional module directory on every host. Those functions load but only work where their dependencies and machine-specific paths exist. If you want a command available on one host only, install the shared files manually and omit the module link there.
+1. backs up existing Bash files into a timestamped `~/.bash-backup-*` directory;
+2. links `.bashrc`, `.bash_common`, `.bash_exports`, `.bash_aliases`, and `.bash_functions` back to this repository;
+3. generates `~/.bash_prompt`;
+4. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
+5. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
+6. moves commands that disappeared from the repo into the backup directory on the next install.
 
-## Validate
+The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, `ytdl`, `ports`, `port`, and `freeport` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
+
+Open a new Bash terminal after installation.
+
+### Root prompt
+
+Run the same installer as root:
 
 ```bash
-bash -n .bash_common .bash_aliases .bash_functions .bash_functions.d/*.bash hosts/*.bashrc root.bashrc install.sh
+sudo bash install.sh
 ```
 
-These are personal utilities. Dependencies include `ip`, `ss`, `lsof`, `git`, `curl`, `jq`, `yt-dlp`, `ffmpeg`, and `7z` for particular commands.
+When `EUID == 0`, the installer performs only the root prompt installation. It does not install aliases, functions, exports, standalone commands, or the normal-user prompt.
+
+The root prompt is defined directly in `install.sh` and written to the bottom of `/root/.bashrc` inside a managed block:
+
+```bash
+# >>> dotbash-files root prompt >>>
+export PS1='...'
+# <<< dotbash-files root prompt <<<
+```
+
+Running the root installer again replaces that managed block instead of appending duplicates. The previous `/root/.bashrc` is backed up first.
+
+## Shell helpers
+
+A few conveniences intentionally remain shell functions or aliases rather than standalone commands:
+
+- `tmpd [name]` — create a temporary directory and immediately enter it.
+- `man` — wraps the system man command with colorized headings and emphasis.
+- `tre` — compact, colorized tree view with hidden files, common dependency directories excluded, and pager output.
+
+## Standalone commands
+
+Current repo-owned programs include:
+
+- `comfy` — manage the ComfyUI systemd service; `comfy --backup` creates the rebuild backup.
+- `ytdl` — the standard yt-dlp wrapper.
+- `git check-clean` — show repository status and return nonzero when the working tree has changes.
+- `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
+- `my-commands` — show the generated command reference.
+- `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
+- `server` — serve the current directory with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication.
+- `getcerts` — inspect a host's TLS certificate, SANs, issuer, fingerprint, validity, and days until expiration.
+- `digga` — concise DNS lookup wrapper around `dig`.
+- `repo` — open the current Git repository, subdirectory, or file in its remote web interface.
+
+Git discovers executables named `git-<name>` on PATH, which is why `git-check-clean` is invoked as `git check-clean`.
+
+## Testing
+
+Run:
+
+```bash
+make test
+```
+
+The test target syntax-checks the shared Bash files and every command in `bin/`, verifies command metadata, and runs ShellCheck when it is installed.
+
+## Validation
+
+The Bash configuration can be syntax-checked with:
+
+```bash
+bash -n .bashrc .bash_common .bash_exports .bash_aliases .bash_functions install.sh
+
+for file in bin/*; do
+    [[ $(head -n 1 "$file") == '#!/usr/bin/env bash' ]] && bash -n "$file"
+done
+```
+
+Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `tree`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.

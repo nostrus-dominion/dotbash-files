@@ -1,4 +1,7 @@
-# Source from ~/.bash_functions; Bash functions require Bash.
+#!/usr/bin/env bash
+# description: Download video or audio with the user's standard yt-dlp defaults.
+# usage: ytdl [OPTIONS] [yt-dlp OPTIONS] URL...
+
 # yt-dlp wrapper with consistent download defaults.
 #
 # Defaults:
@@ -201,3 +204,6 @@ EOF
 
     return "$exitCode"
 }
+
+
+ytdl "$@"

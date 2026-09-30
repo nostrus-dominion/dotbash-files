@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# description: Check whether the current Git working tree is clean.
+# usage: git check-clean
+
+if (( $# == 1 )) && [[ $1 == -h || $1 == --help ]]; then
+    cat <<'EOF'
+Usage: git check-clean
+
+Show branch and working-tree status and exit nonzero when changes exist.
+EOF
+    exit 0
+fi
 
 if (( $# != 0 )); then
     echo "Usage: git check-clean" >&2

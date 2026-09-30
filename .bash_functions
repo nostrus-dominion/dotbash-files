@@ -11,7 +11,7 @@
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact rm 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -167,6 +167,24 @@ mkcd() {
 
     mkdir -p -- "$1" || return 1
     cd -P -- "$1" || return 1
+}
+
+# Create a temporary directory and enter it.
+tmpd() {
+    if (( $# > 1 )); then
+        echo 'Usage: tmpd [name]' >&2
+        return 2
+    fi
+
+    local directory
+
+    if (( $# == 0 )); then
+        directory=$(mktemp -d) || return 1
+    else
+        directory=$(mktemp -d -t "$1.XXXXXXXXXX") || return 1
+    fi
+
+    cd -P -- "$directory" || return 1
 }
 
 # Protect recursive force-deletes with an explicit confirmation.

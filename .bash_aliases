@@ -9,6 +9,7 @@ alias .3='cd ../../../'
 alias .4='cd ../../../../'
 alias .5='cd ../../../../..'
 alias .r='cd /'
+alias tree="tree --dirsfirst -pughs"
 
 # safety nets
 alias chgrp='chgrp --preserve-root'

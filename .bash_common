@@ -98,8 +98,8 @@ if ! shopt -oq posix; then
     fi
 fi
 
-# Optional machine-specific/private overrides. This file is user-owned and
-# is never created or managed by dotbash-files.
+# Optional machine-specific/private overrides. The installer creates this
+# file once if needed, then leaves it entirely user-owned.
 if [[ -r $HOME/.bash_local ]]; then
     source "$HOME/.bash_local" || return $?
 fi

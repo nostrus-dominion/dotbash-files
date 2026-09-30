@@ -1,0 +1,11 @@
+# Environment variables shared across interactive Bash sessions.
+
+export EDITOR=vim
+export VISUAL=vim
+export SYSTEMD_EDITOR=vim
+export NVM_DIR="$HOME/.nvm"
+
+# User-installed commands, including dotbash-files/bin.
+if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi

@@ -6,6 +6,7 @@
 comfy() {
     local action="start"
     local service="comfyui.service"
+    local wait_for_ready=false
 
     case "${1:-}" in
         -r|--restart)
@@ -50,12 +51,14 @@ EOF
             else
                 echo "Starting ComfyUI service..."
                 systemctl start "$service" || return 1
+                wait_for_ready=true
             fi
             ;;
 
         restart)
             echo "Restarting ComfyUI service..."
             systemctl restart "$service" || return 1
+            wait_for_ready=true
             ;;
 
         stop)
@@ -79,9 +82,7 @@ EOF
         echo
         echo "ComfyUI: $comfyURL"
 
-        # If we started/restarted ComfyUI, wait for the web server
-        # to become available before opening the browser.
-        if [[ "$action" == "start" || "$action" == "restart" ]]; then
+        if [[ "$wait_for_ready" == true ]]; then
             printf "Waiting for ComfyUI"
 
             for _ in {1..30}; do
@@ -99,6 +100,10 @@ EOF
             done
 
             echo
+        elif [[ "$action" == "start" ]]; then
+            echo "Opening ComfyUI..."
+            xdg-open "$comfyURL" >/dev/null 2>&1 &
+            disown
         fi
     fi
 

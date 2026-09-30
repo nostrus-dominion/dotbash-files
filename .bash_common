@@ -7,8 +7,48 @@ fi
 
 HISTCONTROL=ignoreboth
 shopt -s histappend checkwinsize
-HISTSIZE=1000
-HISTFILESIZE=2000
+
+# History policy is chosen by install.sh and stored outside the repository.
+#   -1 = session-only history; discard it when the shell exits
+#    0 = keep no command history
+# 100-32768 = keep that many commands persistently
+history_setting=1000
+history_config="${XDG_CONFIG_HOME:-$HOME/.config}/dotbash-files/history"
+
+if [[ -r $history_config ]]; then
+    IFS= read -r configured_history < "$history_config" || configured_history=''
+
+    if [[ $configured_history == -1 || $configured_history == 0 ]]; then
+        history_setting=$configured_history
+    elif [[ $configured_history =~ ^[0-9]+$ ]] &&
+         (( configured_history >= 100 && configured_history <= 32768 )); then
+        history_setting=$configured_history
+    fi
+fi
+
+case "$history_setting" in
+    -1)
+        # Keep history for this shell only. Clearing here prevents previously
+        # persisted history from leaking into a session-only shell.
+        history -c
+        HISTSIZE=32768
+        HISTFILESIZE=0
+        HISTFILE=/dev/null
+        ;;
+    0)
+        history -c
+        HISTSIZE=0
+        HISTFILESIZE=0
+        HISTFILE=/dev/null
+        ;;
+    *)
+        HISTSIZE=$history_setting
+        HISTFILESIZE=$history_setting
+        HISTFILE="$HOME/.bash_history"
+        ;;
+esac
+
+unset configured_history history_config history_setting
 
 if [[ -x /usr/bin/lesspipe ]]; then
     eval "$(SHELL=/bin/sh lesspipe)"

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# description: Query DNS with concise dig output.
+# usage: digga name [type] [server]
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage: digga name [type] [server]
+
+Defaults:
+  type    A
+  server  system resolver
+
+Examples:
+  digga nostrus-dominion.co
+  digga nostrus-dominion.co MX
+  digga requests.nostrus-dominion.co A 10.1.10.1
+EOF
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+    (( $# == 1 )) || {
+        usage >&2
+        exit 2
+    }
+    usage
+    exit 0
+fi
+
+if (( $# < 1 || $# > 3 )); then
+    usage >&2
+    exit 2
+fi
+
+command -v dig >/dev/null 2>&1 || {
+    echo 'Error: dig is required (Debian/Ubuntu package: dnsutils).' >&2
+    exit 1
+}
+
+name=$1
+record_type=${2:-A}
+server=${3:-}
+
+args=(+nocmd "$name" "$record_type" +noall +answer +comments)
+
+if [[ -n $server ]]; then
+    server=${server#@}
+    args=("@$server" "${args[@]}")
+fi
+
+exec dig "${args[@]}"

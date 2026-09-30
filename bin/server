@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# description: Serve the current directory over HTTP, optionally with generated Basic Auth.
-# usage: server [--secure] [port]
+# description: Serve the current directory over HTTP with generated Basic Auth by default.
+# usage: server [--unsecure] [port]
 
 set -u
 
@@ -8,13 +8,16 @@ usage() {
     cat <<'EOF'
 Usage:
   server [port]
-  server --secure [port]
+  server -u [port]
+  server --unsecure [port]
   server -h, --help
 
 The default port is 8000.
 
---secure generates a random username/password prompt using HTTP Basic Auth.
-This protects against casual access, but HTTP itself is not encrypted.
+By default, server generates temporary credentials and requires HTTP Basic
+Authentication. Use --unsecure to serve without authentication.
+
+Basic Auth protects against casual access, but plain HTTP is not encrypted.
 EOF
 }
 
@@ -29,7 +32,7 @@ open_browser() {
     fi
 }
 
-secure=false
+secure=true
 port=8000
 
 case "${1:-}" in
@@ -41,8 +44,8 @@ case "${1:-}" in
         usage
         exit 0
         ;;
-    --secure)
-        secure=true
+    -u|--unsecure)
+        secure=false
         shift
         ;;
 esac
@@ -71,7 +74,7 @@ command -v python3 >/dev/null 2>&1 || {
 url="http://localhost:$port"
 
 if [[ $secure == false ]]; then
-    printf 'Serving %s at %s\n' "$PWD" "$url"
+    printf 'Serving %s at %s WITHOUT authentication.\n' "$PWD" "$url"
     echo 'Press Ctrl-C to stop.'
     echo
     open_browser "$url"
@@ -91,7 +94,7 @@ echo
 printf 'Username: %s\n' "$username"
 printf 'Password: %s\n' "$password"
 echo
-echo 'WARNING: Basic Auth over plain HTTP is not encrypted.'
+echo 'NOTE: Authentication is enabled, but plain HTTP does not encrypt traffic.'
 echo 'Press Ctrl-C to stop.'
 echo
 

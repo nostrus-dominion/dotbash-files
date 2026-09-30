@@ -192,7 +192,11 @@ install_user() {
     local history_config_file
     local history_choice
     local current_history
+    local history_description
     local change_history
+    local change_prompt
+    local answer
+    local prompt_definition
     local i
 
     echo "dotbash-files installer"

@@ -6,10 +6,28 @@ set -u
 
 idle_timeout=1800
 
-runtime_base=${XDG_RUNTIME_DIR:-"$HOME/.cache"}
-state_dir="$runtime_base/dotbash-files"
-pid_file="$state_dir/server.pid"
-log_file="$state_dir/server.log"
+format_duration() {
+    local seconds=$1
+
+    if (( seconds >= 3600 && seconds % 3600 == 0 )); then
+        local hours=$((seconds / 3600))
+        printf '%d hour%s' "$hours" "$([[ $hours -eq 1 ]] && printf '' || printf 's')"
+    elif (( seconds >= 60 && seconds % 60 == 0 )); then
+        local minutes=$((seconds / 60))
+        printf '%d minute%s' "$minutes" "$([[ $minutes -eq 1 ]] && printf '' || printf 's')"
+    else
+        printf '%d second%s' "$seconds" "$([[ $seconds -eq 1 ]] && printf '' || printf 's')"
+    fi
+}
+
+runtime_base=${XDG_RUNTIME_DIR:-"${TMPDIR:-/tmp}/dotbash-$UID"}
+runtime_dir="$runtime_base/dotbash-files"
+state_base=${XDG_STATE_HOME:-"$HOME/.local/state"}
+state_dir="$state_base/dotbash-files"
+log_dir="$state_dir/logs"
+
+pid_file="$runtime_dir/server.pid"
+log_file="$log_dir/server.log"
 
 usage() {
     cat <<'EOF'
@@ -25,11 +43,14 @@ The default port is 8000.
 By default, server generates temporary credentials and requires HTTP Basic
 Authentication. Use --unsecure to serve without authentication.
 
-The server detaches from the terminal and automatically stops after 30 minutes
-without an HTTP request. Use 'server --stop' to stop it manually.
+The server detaches from the terminal and automatically stops after the
+configured idle timeout without an HTTP request. Use 'server --stop' to stop
+it manually.
 
 Basic Auth protects against casual access, but plain HTTP is not encrypted.
 EOF
+
+    printf 'Current idle timeout: %s\n' "$(format_duration "$idle_timeout")"
 }
 
 open_browser() {
@@ -61,7 +82,7 @@ managed_pid() {
 }
 
 stop_server() {
-    mkdir -p -- "$state_dir"
+    mkdir -p -- "$runtime_dir"
 
     local pid
     if ! pid=$(managed_pid); then
@@ -142,7 +163,8 @@ command -v python3 >/dev/null 2>&1 || {
     exit 1
 }
 
-mkdir -p -- "$state_dir"
+mkdir -p -- "$runtime_dir" "$log_dir"
+chmod 0700 -- "$runtime_dir" "$state_dir" "$log_dir" 2>/dev/null || :
 
 if existing_pid=$(managed_pid); then
     printf 'A dotbash server is already running as PID %s.\n' "$existing_pid" >&2
@@ -165,6 +187,7 @@ if [[ $secure == true ]]; then
 fi
 
 : > "$log_file"
+chmod 0600 -- "$log_file" 2>/dev/null || :
 
 SERVER_SECURE=$secure \
 SERVER_USER=$username \
@@ -284,7 +307,7 @@ fi
 
 printf 'PID: %s\n' "$server_pid"
 printf 'Log: %s\n' "$log_file"
-echo 'Idle timeout: 30 minutes'
+printf 'Idle timeout: %s\n' "$(format_duration "$idle_timeout")"
 echo 'Stop with: server --stop'
 
 open_browser "$url"

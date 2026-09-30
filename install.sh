@@ -176,6 +176,100 @@ select_color() {
     done
 }
 
+setup_gitconfig() {
+    command -v git >/dev/null 2>&1 || {
+        echo 'Git is not installed; skipping local Git identity setup.'
+        return 0
+    }
+
+    local local_config="$HOME/.local/gitconfig"
+    local git_authorname=''
+    local git_authoremail=''
+    local git_credential='cache'
+    local current_name=''
+    local current_email=''
+    local answer=''
+    local tmp=''
+    local include_found=false
+    local include_path=''
+
+    mkdir -p -- "$HOME/.local"
+
+    if [[ "$(uname -s)" == Darwin ]]; then
+        git_credential='osxkeychain'
+    fi
+
+    if [[ -r $local_config ]]; then
+        current_name=$(git config --file "$local_config" --get user.name 2>/dev/null || :)
+        current_email=$(git config --file "$local_config" --get user.email 2>/dev/null || :)
+
+        echo >/dev/tty
+        if [[ -n $current_name || -n $current_email ]]; then
+            printf 'Existing local Git identity: %s <%s>. Change it? [y/N] ' \
+                "${current_name:-unknown}" "${current_email:-unknown}" >/dev/tty
+        else
+            printf 'Existing ~/.local/gitconfig found. Reconfigure Git identity? [y/N] ' >/dev/tty
+        fi
+
+        read -r answer </dev/tty || return 1
+        if [[ $answer != [yY] && $answer != [yY][eE][sS] ]]; then
+            echo 'Keeping existing local Git config.' >/dev/tty
+        else
+            current_name=''
+            current_email=''
+        fi
+    fi
+
+    if [[ ! -r $local_config || -z $current_name || -z $current_email ]]; then
+        [[ -n $current_name ]] || current_name=$(git config --global --get user.name 2>/dev/null || :)
+        [[ -n $current_email ]] || current_email=$(git config --global --get user.email 2>/dev/null || :)
+
+        echo >/dev/tty
+
+        while [[ -z $git_authorname ]]; do
+            if [[ -n $current_name ]]; then
+                printf 'Git author name [%s]: ' "$current_name" >/dev/tty
+            else
+                printf 'Git author name: ' >/dev/tty
+            fi
+            read -r git_authorname </dev/tty || return 1
+            git_authorname=${git_authorname:-$current_name}
+        done
+
+        while [[ -z $git_authoremail ]]; do
+            if [[ -n $current_email ]]; then
+                printf 'Git author email [%s]: ' "$current_email" >/dev/tty
+            else
+                printf 'Git author email: ' >/dev/tty
+            fi
+            read -r git_authoremail </dev/tty || return 1
+            git_authoremail=${git_authoremail:-$current_email}
+        done
+
+        tmp=$(mktemp) || return 1
+        git config --file "$tmp" user.name "$git_authorname"
+        git config --file "$tmp" user.email "$git_authoremail"
+        git config --file "$tmp" credential.helper "$git_credential"
+
+        mv -- "$tmp" "$local_config"
+        chmod 0600 -- "$local_config"
+
+        printf 'Wrote local Git config: %s\n' "$local_config"
+    fi
+
+    while IFS= read -r include_path; do
+        if [[ $include_path == "$local_config" || $include_path == "~/.local/gitconfig" ]]; then
+            include_found=true
+            break
+        fi
+    done < <(git config --global --get-all include.path 2>/dev/null || :)
+
+    if [[ $include_found == false ]]; then
+        git config --global --add include.path "$local_config"
+        printf 'Added Git include: %s\n' "$local_config"
+    fi
+}
+
 install_user() {
     local user_sgr
     local host_sgr
@@ -188,6 +282,15 @@ install_user() {
     local username
     local hostname
     local directory
+    local history_config_dir
+    local history_config_file
+    local history_choice
+    local current_history
+    local history_description
+    local change_history
+    local change_prompt
+    local answer
+    local prompt_definition
     local i
 
     echo "dotbash-files installer"
@@ -224,6 +327,67 @@ install_user() {
         echo >/dev/tty
         printf 'Prompt preview: \033[%sm%s\033[0m@\033[%sm%s\033[0m:%s$ command\n' \
             "$user_sgr" "$username" "$host_sgr" "$hostname" "$directory" >/dev/tty
+    fi
+
+    history_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dotbash-files"
+    history_config_file="$history_config_dir/history"
+    change_history=true
+    current_history=''
+
+    if [[ -r $history_config_file ]]; then
+        IFS= read -r current_history < "$history_config_file" || current_history=''
+
+        if [[ $current_history == -1 ]]; then
+            history_description='session only; discarded on exit'
+        elif [[ $current_history == 0 ]]; then
+            history_description='disabled'
+        elif [[ $current_history =~ ^[0-9]+$ ]] &&
+             (( current_history >= 100 && current_history <= 32768 )); then
+            history_description="$current_history commands"
+        else
+            history_description='invalid setting; reconfiguration required'
+            current_history=''
+        fi
+
+        if [[ -n $current_history ]]; then
+            echo >/dev/tty
+            printf 'Existing history setting: %s. Change it? [y/N] ' "$history_description" >/dev/tty
+            read -r answer </dev/tty || exit 1
+
+            if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
+                change_history=true
+            else
+                change_history=false
+                history_choice=$current_history
+                echo 'Keeping existing history setting.' >/dev/tty
+            fi
+        fi
+    fi
+
+    if [[ $change_history == true ]]; then
+        echo >/dev/tty
+        echo 'Bash history:' >/dev/tty
+        echo '  -1       session only; discard history on exit' >/dev/tty
+        echo '   0       never keep command history' >/dev/tty
+        echo '  100-32768 persist that many commands' >/dev/tty
+        echo >/dev/tty
+
+        while true; do
+            printf 'History setting [1000]: ' >/dev/tty
+            read -r history_choice </dev/tty || exit 1
+            history_choice=${history_choice:-1000}
+
+            if [[ $history_choice == -1 || $history_choice == 0 ]]; then
+                break
+            fi
+
+            if [[ $history_choice =~ ^[0-9]+$ ]] &&
+               (( history_choice >= 100 && history_choice <= 32768 )); then
+                break
+            fi
+
+            echo 'Invalid history setting. Use -1, 0, or a number from 100 through 32768.' >/dev/tty
+        done
     fi
 
     echo >/dev/tty
@@ -291,6 +455,14 @@ install_user() {
         : > "$HOME/.bash_local"
         chmod 0600 -- "$HOME/.bash_local"
     fi
+
+    if [[ $change_history == true ]]; then
+        mkdir -p -- "$history_config_dir"
+        printf '%s\n' "$history_choice" > "$history_config_file"
+        chmod 0600 -- "$history_config_file"
+    fi
+
+    setup_gitconfig || exit 1
 
     # Retire the old optional-module link/directory from previous installs.
     legacy_functions_dir="$HOME/.bash_functions.d"

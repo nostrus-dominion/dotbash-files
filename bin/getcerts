@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# description: Inspect the TLS certificate presented by a host.
+# usage: getcerts host [port]
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage: getcerts host [port]
+
+Examples:
+  getcerts nostrus-dominion.co
+  getcerts nostrus-dominion.co 8443
+  getcerts https://nostrus-dominion.co/path
+EOF
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+    (( $# == 1 )) || {
+        usage >&2
+        exit 2
+    }
+    usage
+    exit 0
+fi
+
+if (( $# < 1 || $# > 2 )); then
+    usage >&2
+    exit 2
+fi
+
+command -v openssl >/dev/null 2>&1 || {
+    echo 'Error: openssl is required.' >&2
+    exit 1
+}
+
+target=$1
+port=${2:-443}
+
+target=${target#*://}
+target=${target%%/*}
+
+if (( $# == 1 )) && [[ $target == *:* ]]; then
+    port=${target##*:}
+    target=${target%%:*}
+fi
+
+if [[ -z $target ]]; then
+    echo 'Error: host is empty.' >&2
+    exit 2
+fi
+
+if [[ ! $port =~ ^[0-9]+$ || ${#port} -gt 5 ]] || (( 10#$port < 1 || 10#$port > 65535 )); then
+    echo 'Port must be between 1 and 65535.' >&2
+    exit 2
+fi
+
+port=$((10#$port))
+tmp=$(mktemp)
+trap 'rm -f -- "$tmp"' EXIT
+
+if ! openssl s_client     -connect "$target:$port"     -servername "$target"     -showcerts     </dev/null 2>/dev/null |
+    sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' |
+    awk '
+        /-----BEGIN CERTIFICATE-----/ { cert++ }
+        cert == 1 { print }
+        /-----END CERTIFICATE-----/ && cert == 1 { exit }
+    ' > "$tmp"; then
+    printf 'Error: unable to retrieve certificate from %s:%s.\n' "$target" "$port" >&2
+    exit 1
+fi
+
+if ! openssl x509 -in "$tmp" -noout >/dev/null 2>&1; then
+    printf 'Error: no valid certificate received from %s:%s.\n' "$target" "$port" >&2
+    exit 1
+fi
+
+printf 'Certificate: %s:%s\n\n' "$target" "$port"
+
+subject=$(openssl x509 -in "$tmp" -noout -subject -nameopt RFC2253 | sed 's/^subject=//')
+issuer=$(openssl x509 -in "$tmp" -noout -issuer -nameopt RFC2253 | sed 's/^issuer=//')
+serial=$(openssl x509 -in "$tmp" -noout -serial | cut -d= -f2-)
+fingerprint=$(openssl x509 -in "$tmp" -noout -fingerprint -sha256 | cut -d= -f2-)
+not_before=$(openssl x509 -in "$tmp" -noout -startdate | cut -d= -f2-)
+not_after=$(openssl x509 -in "$tmp" -noout -enddate | cut -d= -f2-)
+
+printf 'Subject:     %s\n' "$subject"
+printf 'Issuer:      %s\n' "$issuer"
+printf 'Serial:      %s\n' "$serial"
+printf 'SHA-256:     %s\n' "$fingerprint"
+printf 'Valid from:  %s\n' "$not_before"
+printf 'Valid until: %s\n' "$not_after"
+
+echo
+echo 'Subject Alternative Names:'
+san_output=$(openssl x509 -in "$tmp" -noout -ext subjectAltName 2>/dev/null || true)
+
+if [[ -n $san_output ]]; then
+    printf '%s\n' "$san_output" |
+        sed '1d; s/^[[:space:]]*//' |
+        tr ',' '\n' |
+        sed 's/^[[:space:]]*/  /'
+else
+    echo '  (none)'
+fi
+
+if end_epoch=$(date -d "$not_after" +%s 2>/dev/null); then
+    now_epoch=$(date +%s)
+    seconds_left=$((end_epoch - now_epoch))
+
+    if (( seconds_left >= 0 )); then
+        days_left=$(((seconds_left + 86399) / 86400))
+        printf '\nExpires in: %d day(s)\n' "$days_left"
+    else
+        days_expired=$(((-seconds_left + 86399) / 86400))
+        printf '\nEXPIRED: %d day(s) ago\n' "$days_expired"
+    fi
+fi

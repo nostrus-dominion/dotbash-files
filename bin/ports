@@ -19,8 +19,8 @@ Commands:
   ports --free <port> Same as -f.
   ports -h, --help    Show this help.
 
-The command runs as your normal user and requests sudo authentication only
-when process details or termination require elevated privileges.
+The command runs as your normal user and authenticates with sudo only when
+another user's process requires elevated inspection or termination.
 EOF
 }
 
@@ -35,9 +35,25 @@ validate_port() {
     (( number >= 1 && number <= 65535 ))
 }
 
+SS_BIN=$(command -v ss || true)
+KILL_BIN=$(type -P kill || true)
+
+[[ -n $SS_BIN ]] || {
+    echo 'Error: ss is not installed or not in PATH.' >&2
+    exit 1
+}
+
+if [[ -z $KILL_BIN ]]; then
+    if [[ -x /bin/kill ]]; then
+        KILL_BIN=/bin/kill
+    elif [[ -x /usr/bin/kill ]]; then
+        KILL_BIN=/usr/bin/kill
+    fi
+fi
+
 socket_rows() {
     local port=$1
-    ss -H -tulnp "sport = :$port" 2>/dev/null
+    "$SS_BIN" -H -tulnp "sport = :$port" 2>/dev/null
 }
 
 rows_have_hidden_processes() {
@@ -49,25 +65,35 @@ require_privilege() {
         return 0
     fi
 
-    if ! command -v sudo >/dev/null 2>&1; then
+    command -v sudo >/dev/null 2>&1 || {
         echo 'Error: sudo is required for this operation but is not installed.' >&2
         return 1
+    }
+
+    if sudo -n true 2>/dev/null; then
+        return 0
     fi
 
-    sudo -v
+    echo 'Elevated privileges are required; authenticating with sudo...'
+
+    if [[ -r /dev/tty ]]; then
+        sudo -v </dev/tty
+    else
+        sudo -v
+    fi
 }
 
 run_privileged() {
     if (( EUID == 0 )); then
         "$@"
     else
-        sudo "$@"
+        sudo -- "$@"
     fi
 }
 
 privileged_socket_rows() {
     local port=$1
-    run_privileged ss -H -tulnp "sport = :$port" 2>/dev/null
+    run_privileged "$SS_BIN" -H -tulnp "sport = :$port"
 }
 
 show_port() {
@@ -82,15 +108,14 @@ show_port() {
     fi
 
     if (( EUID != 0 )) && printf '%s\n' "$rows" | rows_have_hidden_processes; then
-        printf 'Port %s is listening, but process details require elevated privileges.\n' "$port"
-
+        printf 'Port %s is listening, but process details are hidden from this user.\n' "$port"
         require_privilege || return 1
         echo
-        run_privileged ss -tulnp "sport = :$port"
+        run_privileged "$SS_BIN" -tulnp "sport = :$port"
         return
     fi
 
-    ss -tulnp "sport = :$port"
+    "$SS_BIN" -tulnp "sport = :$port"
 }
 
 free_port() {
@@ -108,19 +133,18 @@ free_port() {
     fi
 
     if (( EUID != 0 )) && printf '%s\n' "$rows" | rows_have_hidden_processes; then
-        printf 'Port %s is in use, but process details require elevated privileges.\n' "$port"
-
+        printf 'Port %s is in use, but process details are hidden from this user.\n' "$port"
         require_privilege || return 1
         elevated=true
-        rows=$(privileged_socket_rows "$port")
+        rows=$(privileged_socket_rows "$port") || return 1
         echo
     fi
 
     echo "Processes using port $port:"
     if [[ $elevated == true ]]; then
-        run_privileged ss -tulnp "sport = :$port"
+        run_privileged "$SS_BIN" -tulnp "sport = :$port"
     else
-        ss -tulnp "sport = :$port"
+        "$SS_BIN" -tulnp "sport = :$port"
     fi
     echo
 
@@ -136,18 +160,23 @@ free_port() {
         return 1
     fi
 
+    [[ -n $KILL_BIN ]] || {
+        echo 'Error: kill executable was not found.' >&2
+        return 1
+    }
+
     while IFS= read -r pid; do
         [[ -n $pid ]] || continue
         printf 'Sending TERM to PID %s...\n' "$pid"
 
         if [[ $elevated == true ]]; then
-            if ! run_privileged kill -TERM "$pid"; then
+            if ! run_privileged "$KILL_BIN" -TERM "$pid"; then
                 printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
             fi
             continue
         fi
 
-        if kill -TERM "$pid" 2>/dev/null; then
+        if "$KILL_BIN" -TERM "$pid" 2>/dev/null; then
             continue
         fi
 
@@ -160,13 +189,12 @@ free_port() {
         require_privilege || return 1
         elevated=true
 
-        if ! run_privileged kill -TERM "$pid"; then
+        if ! run_privileged "$KILL_BIN" -TERM "$pid"; then
             printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
         fi
     done <<< "$pids"
 
     sleep 1
-
     rows=$(socket_rows "$port")
 
     if [[ -z $rows ]]; then
@@ -179,22 +207,17 @@ free_port() {
 
     if (( EUID != 0 )) && printf '%s\n' "$rows" | rows_have_hidden_processes; then
         if require_privilege; then
-            run_privileged ss -tulnp "sport = :$port"
+            run_privileged "$SS_BIN" -tulnp "sport = :$port"
         else
-            ss -tulnp "sport = :$port"
+            "$SS_BIN" -tulnp "sport = :$port"
         fi
     else
-        ss -tulnp "sport = :$port"
+        "$SS_BIN" -tulnp "sport = :$port"
     fi
 
     echo
     echo 'If this port belongs to a managed service, stop the service instead.'
     return 1
-}
-
-command -v ss >/dev/null 2>&1 || {
-    echo 'Error: ss is not installed or not in PATH.' >&2
-    exit 1
 }
 
 case "${1:-}" in
@@ -225,7 +248,7 @@ case "${1:-}" in
             usage >&2
             exit 2
         }
-        ss -tulnp
+        "$SS_BIN" -tulnp
         ;;
 
     *)

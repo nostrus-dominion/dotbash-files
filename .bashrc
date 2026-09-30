@@ -5,7 +5,6 @@ if [[ -r $HOME/.bash_common ]]; then
     source "$HOME/.bash_common" || return $?
 fi
 
-# User-owned machine settings always have the final say.
-if [[ -r $HOME/.bash_local ]]; then
-    source "$HOME/.bash_local" || return $?
+if [[ -r $HOME/.bash_prompt ]]; then
+    source "$HOME/.bash_prompt" || return $?
 fi

@@ -18,14 +18,13 @@ dotbash-files/
 │   ├── ports
 │   ├── repo
 │   ├── server
-│   ├── dotbash-doctor
+│   ├── test.sh
 │   └── ytdl
 ├── .bashrc
 ├── .bash_common
 ├── .bash_exports
 ├── .bash_aliases
 ├── .bash_functions
-├── tests/
 ├── install.sh
 └── README.md
 ```
@@ -34,8 +33,7 @@ dotbash-files/
 
 - `.bashrc` — generic interactive entry point.
 - `.bash_exports` — exported environment variables and PATH setup.
-- `.bash_common` — shared defaults, colors, completion, NVM initialization, and loading shared Bash files.
-- `~/.bash_local` — private prompt, history policy, shell Git identity overrides, and final machine-specific settings. This file lives outside the repository and is sourced last by `.bashrc`.
+- `.bash_common` — history, colors, completion, NVM initialization, loading shared Bash files, and finally optional `~/.bash_local` overrides.
 - `.bash_aliases` — simple command substitutions.
 - `.bash_functions` — commands that must affect the current shell, such as changing directory, activating a virtual environment, or reading Bash history.
 - `bin/` — standalone programs installed into `~/.local/bin`.
@@ -44,7 +42,7 @@ If a command does not need to modify the current Bash process, it should normall
 
 ## Prompt
 
-Normal-user installs store the prompt in `~/.bash_local`. On first install, the installer asks for separate username and hostname colors. On later runs, an existing prompt scheme is preserved by default; the color menu is shown only when you explicitly choose to change it. The prompt layout stays fixed:
+Normal-user installs generate `~/.bash_prompt`. On first install, the installer asks for separate username and hostname colors. On later runs, an existing prompt scheme is preserved by default; the color menu is shown only when you explicitly choose to change it. The prompt layout stays fixed:
 
 ```text
 user@host:dir$ command
@@ -56,7 +54,7 @@ The installer includes named ANSI colors plus a custom ANSI-256 option.
 
 ## Bash history
 
-The installer stores the selected history policy as Bash assignments in `~/.bash_local`. Existing settings are preserved on later installer runs unless you explicitly choose to change them.
+The installer stores the selected history policy in `${XDG_CONFIG_HOME:-~/.config}/dotbash-files/history`. Existing settings are preserved on later installer runs unless you explicitly choose to change them.
 
 Accepted values:
 
@@ -68,20 +66,22 @@ The default for a new install is `1000`.
 
 ## Git identity
 
-Git cannot read Bash code. The installer retires `~/.local/gitconfig` and migrates its settings into native global Git configuration (`~/.gitconfig`, or Git's existing XDG global config). Native configuration keeps editors and GUI clients working.
+When Git is installed, the installer maintains a machine-local identity file at:
 
-The selected identity also lives in a small block in `~/.bash_local`:
-
-```bash
-export GIT_AUTHOR_NAME='Your Name'
-export GIT_AUTHOR_EMAIL='you@example.com'
-export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
-export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+```text
+~/.local/gitconfig
 ```
 
-These environment variables override Git identity in shells, including repository-local identity settings. Remove/unset the exports if you prefer Git's native per-repository identity selection. Editing this block changes shell identity after `rebash`; changes for GUI clients require updating `git config --global user.name` and `user.email` too. No Git configuration is written during shell startup.
+On first setup it asks for the Git author name and email, using any existing global values as defaults. Linux uses Git's `cache` credential helper by default; macOS uses `osxkeychain`.
 
-The installer asks before changing an existing identity and preserves custom credential helpers. On a fresh install, it defaults to `cache` on Linux or `osxkeychain` on macOS.
+The installer then ensures the normal global Git config includes that local file:
+
+```ini
+[include]
+    path = /home/user/.local/gitconfig
+```
+
+On later installs, the existing local identity is preserved unless you explicitly choose to change it. The file is mode `0600` and is not stored in this repository.
 
 ## Environment and NVM
 
@@ -108,26 +108,17 @@ Machines without NVM simply skip those files.
 
 ## Local overrides
 
-`~/.bash_local` holds your machine settings and is loaded **last**, after all shared configuration. It is a regular file with mode `0600`, never a link into the repository.
-
-The installer puts prompt, history, and shell Git identity in labeled blocks. It only replaces a setting's block when you choose to change that setting. All custom code outside the blocks remains intact and appears afterward, so your overrides win.
+`~/.bash_local` is a user-owned file for machine-specific, private, or experimental configuration. The installer creates an empty `~/.bash_local` with mode `0600` if it does not exist, then never overwrites, links, or replaces it.
 
 Examples:
 
 ```bash
-export EDITOR=vim
-export VISUAL=vim
-export PATH="$HOME/special-tools/bin:$PATH"
 export SOME_PRIVATE_VAR="..."
 alias media='ssh media-server'
-PS1='my custom prompt> '
-HISTCONTROL=ignoreboth:erasedups
-shopt -s autocd
-# Functions, completion hooks, proxy settings and machine-specific variables
-# can also go here. Bash code in this file executes every time you reload it.
+export PATH="$HOME/special-tools/bin:$PATH"
 ```
 
-Do not commit credentials or private configuration to the shared repository. On migration, the old prompt and history settings are imported, the old Git include is migrated into native Git configuration, and the retired files are backed up. Existing local overrides still win. Previously configured NVM is initialized by shared configuration before local overrides; changing its location requires initializing NVM in the local file too.
+Because it is sourced last by `.bash_common`, local settings can intentionally override the shared configuration.
 
 ## Command reference
 
@@ -170,14 +161,15 @@ The installer asks for username and hostname colors, shows a prompt preview, and
 
 It:
 
-1. backs up existing files into a private `~/.bash-backup-*` directory;
+1. backs up existing Bash files into a timestamped `~/.bash-backup-*` directory;
 2. links `.bashrc`, `.bash_common`, `.bash_exports`, `.bash_aliases`, and `.bash_functions` back to this repository;
-3. creates or migrates `~/.bash_local`, preserving its custom code;
-4. asks before changing an existing prompt, history policy, or Git identity (default is keep);
-5. migrates the separate `.bash_prompt`, history-policy file, and `.local/gitconfig`, backing them up before retiring them;
-6. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
-7. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
-8. moves commands removed from the repo, including the retired `test.sh`, into the backup directory on the next install.
+3. preserves an existing `~/.bash_prompt` unless you explicitly choose to change its colors; otherwise it generates the prompt;
+4. creates `~/.bash_local` once if it is missing and leaves it user-owned thereafter;
+5. asks for a Bash history policy on first install and preserves that setting on later runs unless you choose to change it;
+6. configures a machine-local Git identity in `~/.local/gitconfig` and includes it from the global Git config;
+7. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
+8. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
+9. moves commands that disappeared from the repo into the backup directory on the next install.
 
 The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, `ytdl`, `ports`, `port`, and `freeport` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
 
@@ -208,9 +200,6 @@ Running the root installer again replaces that managed block instead of appendin
 A few conveniences intentionally remain shell functions or aliases rather than standalone commands:
 
 - `tmpd [name]` — create a temporary directory and immediately enter it.
-- `zipit [date]` — bundle the current directory into an uncompressed `zipit.zip` for fast, easy movement; an optional date expression keeps only entries modified on or before that cutoff.
-- `store [date]` — preserve the current Unix filesystem tree in an uncompressed `store.tar`; an optional date expression keeps only entries modified on or before that cutoff.
-- `targz <file-or-directory>` — create a portable compressed `.tar.gz`, using `pigz` when available and falling back to `gzip`.
 - `man` — wraps the system man command with colorized headings and emphasis.
 - `tre` — compact, colorized tree view with hidden files, common dependency directories excluded, and pager output.
 - `pubkey` — copy the preferred SSH public key (`id_ed25519.pub`, then `id_rsa.pub`) to the desktop clipboard using `wl-copy`, `xclip`, or `pbcopy`; if no clipboard command is available, print the key instead.
@@ -219,7 +208,6 @@ A few conveniences intentionally remain shell functions or aliases rather than s
 
 Current repo-owned programs include:
 
-- `dotbash-doctor` — validate the repository and diagnose installation/dependencies; `--test` runs isolated behavior checks.
 - `battery` — show a compact battery/AC indicator on macOS and Linux; prints nothing when no battery is present.
 - `comfy` — manage the ComfyUI systemd service; `comfy --backup` creates the rebuild backup.
 - `ytdl` — the standard yt-dlp wrapper.
@@ -235,33 +223,26 @@ Current repo-owned programs include:
 
 Git discovers executables named `git-<name>` on PATH, which is why `git-check-clean` is invoked as `git check-clean`.
 
-## Doctor and validation
+## Testing
+
+Run:
 
 ```bash
-dotbash-doctor           # repository checks plus this machine's setup
-dotbash-doctor --check   # repository validation only
-dotbash-doctor --test    # repository checks plus isolated behavior tests
+bin/test.sh
 ```
 
-Before installation, use `bin/dotbash-doctor` from the checkout. The installed symlink works from any directory. It replaces `bin/test.sh`; rerun `install.sh` to retire the old installed command.
+The test command syntax-checks the shared Bash files and every command in `bin/`, verifies command metadata, and runs ShellCheck when it is installed.
 
-Checks include each shared Bash file separately, command metadata and executable modes, Ruby syntax when Ruby is installed, and ShellCheck when available. Machine diagnostics report missing tools with the commands that need them, broken or outdated links, PATH shadowing, runtime versions, local-file syntax/permissions, and leftover legacy settings. Optional missing tools are warnings; failures exit `1` and invalid arguments exit `2`. The doctor never sources private local code. A standalone process cannot inspect aliases/functions already loaded in its parent shell; use `type -a server` (or another command) there. The doctor flags common aliases visible in the local file.
+## Validation
 
-Behavior checks exercise fresh and repeated installation in a temporary home, legacy migration, final prompt overrides, all history policies, invocation through a symlink, and archive content/metadata/date filters/failure cleanup. They require GNU tar/find/date, Python 3, Git and gzip/pigz; Ruby and ShellCheck remain optional.
-
-## Archive guarantees
-
-All three helpers run in subshells. They leave your current directory, shell options and traps alone, reject existing output files (including dangling symlinks), remove temporary/partial outputs on failure, and publish a completed archive without overwriting another file.
-
-- `zipit [date]` creates `zipit.zip` with **zero compression** using Python 3's standard ZIP library. Dotfiles, empty directories and filenames containing spaces/newlines are supported. Date filtering selects individual entries, so an older directory does not pull in newer descendants. Symlinks are stored as links, but ZIP readers differ in how they restore Unix attributes. Special files require `store`.
-- `store [date]` creates uncompressed `store.tar` with GNU tar (`gtar` on macOS). It records permissions, numeric ownership, symlinks, hard links, directory metadata, sparse files, ACLs and extended attributes. GNU find/date are needed for date expressions. This is a filesystem archive, not a live atomic snapshot; changing files can cause failure, and privileged ownership/attributes may require root to read or restore.
-- `targz <file-or-directory>` creates a standard gzip tarball beside its input, using `pigz` or `gzip`. `targz .` writes beside the current directory, so the archive cannot include itself. It includes dotfiles and uses ordinary portable tar metadata; use `store` for the richer GNU metadata guarantees. Both tar and compressor failures are checked.
-
-To restore a `store` archive with GNU tar:
+The Bash configuration can be syntax-checked with:
 
 ```bash
-mkdir restored
-tar --acls --xattrs --xattrs-include='*' -xpf store.tar -C restored
+bash -n .bashrc .bash_common .bash_exports .bash_aliases .bash_functions install.sh
+
+for file in bin/*; do
+    [[ $(head -n 1 "$file") == '#!/usr/bin/env bash' ]] && bash -n "$file"
+done
 ```
 
-Use appropriate privileges when restoring numeric ownership or protected attributes. Extraction cannot recreate metadata that the source filesystem or your privileges prevented the archive from reading.
+Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `ruby`, `tree`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.

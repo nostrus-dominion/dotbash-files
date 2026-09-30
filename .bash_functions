@@ -4,14 +4,14 @@
 #
 # Optional dependencies used by individual functions:
 #   bc, curl, jq, lynx, pygmentize, rsync, 7z
-#   tar, pigz, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
+#   tar, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
 #
 # File managers supported by open():
 #   dolphin, nautilus, thunar, pcmanfm
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man zipit store targz rm 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -234,143 +234,70 @@ search() {
     find . -name "*$*"
 }
 
-# Internal archive builder: explicit entries keep date filtering non-recursive.
-_dotbash_bundle() (
-    local kind=$1; shift
-    local archive cutoff='' work tar_bin result find_bin=find
-    local -a find_args
-    archive=store.tar
-    [[ $kind != zip ]] || archive=zipit.zip
-    if [[ -e $archive || -L $archive ]]; then
-        printf "Error: '%s' already exists.\n" "$archive" >&2; return 1
+# Stores all files, directories, and subdirectories into an uncompressed zip file.
+store() {
+    if ! command -v 7z &>/dev/null; then
+        echo "Error: 7z is not installed or not in PATH." >&2
+        return 1
     fi
-    if (( $# > 0 )); then
-        local date_bin=date
-        command -v gdate >/dev/null 2>&1 && date_bin=gdate
-        cutoff=$("$date_bin" -d "$*" '+%s.%N' 2>/dev/null) || {
-            echo 'Error: invalid date expression (GNU date/gdate is required).' >&2; return 2;
-        }
-    fi
-    if [[ $kind == tar ]]; then
-        tar_bin=tar
-        command -v gtar >/dev/null 2>&1 && tar_bin=gtar
-        [[ $("$tar_bin" --version 2>/dev/null) == *'GNU tar'* ]] || {
-            echo 'Error: store needs GNU tar (tar on Linux, gtar on macOS) for ACLs/xattrs/sparse files.' >&2; return 1;
-        }
-    else
-        command -v python3 >/dev/null 2>&1 || {
-            echo 'Error: zipit requires python3.' >&2; return 1;
-        }
-    fi
-    work=$(mktemp -d ./.dotbash-archive.XXXXXXXX) || return 1
-    trap 'command rm -rf -- "$work"' EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM HUP
-    find_args=(. -mindepth 1 '(' -path "$work" -prune ')' -o)
-    [[ -z $cutoff ]] || find_args+=(-not -newermt "@$cutoff")
-    # GNU find is required for date filtering; -print0 also preserves newlines.
-    command -v gfind >/dev/null 2>&1 && find_bin=gfind
-    "$find_bin" "${find_args[@]}" -print0 > "$work/list" || return 1
-    [[ -s $work/list ]] || { echo 'Nothing to archive.'; return 1; }
-    if [[ $kind == tar ]]; then
-        "$tar_bin" --create --file="$work/archive" --format=pax --numeric-owner \
-            --acls --xattrs --xattrs-include='*' --sparse \
-            --null --verbatim-files-from --no-recursion --files-from="$work/list"
-        result=$?
-    else
-        python3 - "$work/list" "$work/archive" <<'PY'
-import os
-import shutil
-import stat
-import sys
-import zipfile
 
-# Store symlinks as links, never traverse them. ZIP readers vary in their
-# treatment of Unix attributes; store() is the filesystem-preserving option.
-with open(sys.argv[1], 'rb') as listing:
-    paths = [os.fsdecode(p) for p in listing.read().split(b'\0') if p]
-with zipfile.ZipFile(sys.argv[2], 'w', compression=zipfile.ZIP_STORED,
-                     allowZip64=True, strict_timestamps=False) as archive:
-    for path in paths:
-        st = os.lstat(path)
-        name = path[2:] if path.startswith('./') else path
-        if stat.S_ISLNK(st.st_mode):
-            info = zipfile.ZipInfo(name)
-            info.create_system = 3
-            info.external_attr = st.st_mode << 16
-            archive.writestr(info, os.fsencode(os.readlink(path)))
-        elif stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode):
-            info = zipfile.ZipInfo.from_file(path, name, strict_timestamps=False)
-            info.compress_type = zipfile.ZIP_STORED
-            if stat.S_ISDIR(st.st_mode):
-                archive.writestr(info, b'')
-            else:
-                with open(path, 'rb') as source, archive.open(info, 'w', force_zip64=True) as target:
-                    shutil.copyfileobj(source, target)
-        else:
-            raise ValueError(f'ZIP cannot represent this special file: {path!r}; use store')
-PY
-        result=$?
-    fi
-    (( result == 0 )) || { echo 'Archive creation failed.' >&2; return "$result"; }
-    # Hard-link publication is atomic and cannot replace an existing file/link.
-    command ln -- "$work/archive" "$archive" || return 1
-    printf '%s created successfully.\n' "$archive"
-)
+    local archive="store.zip"
+    local cutoff
 
-# Bundle this directory into an uncompressed ZIP; optional date cutoff per entry.
-zipit() (
-    _dotbash_bundle zip "$@"
-)
-
-# Uncompressed GNU TAR preserving modes, links, ownership, ACLs, xattrs and sparse files.
-store() (
-    _dotbash_bundle tar "$@"
-)
-
-# Portable compressed tarball, using pigz or gzip; all work stays in a subshell.
-targz() (
-    (( $# == 1 )) || { echo 'Usage: targz <file-or-directory>' >&2; return 2; }
-    local input=$1 parent name archive work compressor=gzip canonical_dir
-    local -a pipeline_status
-    [[ -e $input || -L $input ]] || { printf "Error: '%s' does not exist.\n" "$input" >&2; return 1; }
-    if [[ -d $input && ! -L ${input%/} ]]; then
-        canonical_dir=$(cd -- "$input" && pwd -P) || return 1
-        [[ $canonical_dir != / ]] || { echo 'Error: archiving the filesystem root is unsupported.' >&2; return 2; }
+    if [[ -e "$archive" ]]; then
+        echo "Error: '$archive' already exists."
+        echo "Remove it first if you want to create a new archive."
+        return 1
     fi
-    input=${input%/}
-    [[ -n $input ]] || { echo 'Error: archiving the filesystem root is unsupported.' >&2; return 2; }
-    name=$(basename -- "$input")
-    if [[ $name == . || $name == .. ]]; then
-        input=$(cd -- "$input" && pwd -P) || return 1
-        name=$(basename -- "$input")
+
+    # No argument: store everything.
+    if [[ $# -eq 0 ]]; then
+        shopt -s dotglob nullglob
+        local files=(*)
+        shopt -u dotglob nullglob
+
+        if [[ ${#files[@]} -eq 0 ]]; then
+            echo "Nothing to store."
+            return 1
+        fi
+
+        7z a -tzip -mx=0 "$archive" "${files[@]}"
+        return $?
     fi
-    [[ $input != / ]] || { echo 'Error: archiving the filesystem root is unsupported.' >&2; return 2; }
-    parent=$(cd -- "$(dirname -- "$input")" && pwd -P) || return 1
-    archive="$parent/$name.tar.gz"
-    [[ ! -e $archive && ! -L $archive ]] || { printf "Error: '%s' already exists.\n" "$archive" >&2; return 1; }
-    command -v pigz >/dev/null 2>&1 && compressor=pigz
-    command -v "$compressor" >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || {
-        echo 'Error: tar and pigz/gzip are required.' >&2; return 1;
+
+    # Convert the supplied date expression into a timestamp.
+    if ! cutoff=$(date -d "$*" '+%Y-%m-%d %H:%M:%S' 2>/dev/null); then
+        echo "Error: invalid date/time expression: $*" >&2
+        return 1
+    fi
+
+    # Find everything modified ON or BEFORE the cutoff.
+    #
+    # We use a temporary file because 7z's @list-file syntax lets it
+    # preserve the complete relative path for every item.
+    local listFile
+    listFile=$(mktemp) || {
+        echo "Error: unable to create temporary file." >&2
+        return 1
     }
-    # Staging and final output live beside the input, never inside that tree.
-    work=$(mktemp -d "$parent/.dotbash-archive.XXXXXXXX") || return 1
-    trap 'command rm -rf -- "$work"' EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM HUP
-    printf 'Compressing with %s: %s\n' "$compressor" "$archive"
-    # Capture both statuses explicitly, even when the caller uses errexit/pipefail.
-    if tar -cf - -C "$parent" -- "$name" | "$compressor" > "$work/archive"; then
-        pipeline_status=("${PIPESTATUS[@]}")
-    else
-        pipeline_status=("${PIPESTATUS[@]}")
+
+
+    find . -mindepth 1 -not -newermt "$cutoff" -print0 |
+        while IFS= read -r -d '' file; do
+            printf '%s\n' "${file#./}"
+        done > "$listFile"
+
+    if [[ ! -s "$listFile" ]]; then
+        echo "Nothing to store before: $cutoff"
+        command rm -f -- "$listFile"
+        return 1
     fi
-    if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )); then
-        echo 'Archive creation failed.' >&2; return 1
-    fi
-    command ln -- "$work/archive" "$archive" || return 1
-    printf '%s created successfully.\n' "$archive"
-)
+
+    7z a -tzip -mx=0 "$archive" @"$listFile"
+    local result=$?
+    command rm -f -- "$listFile"
+    return "$result"
+}
 
 # Extract a supported archive into the current directory.
 extract() {
@@ -388,16 +315,16 @@ extract() {
 
     case "$archive" in
         *.tar.bz2|*.tbz2)
-            tar -xjf "$archive"
+            tar xjf -- "$archive"
             ;;
         *.tar.gz|*.tgz)
-            tar -xzf "$archive"
+            tar xzf -- "$archive"
             ;;
         *.tar.xz|*.txz)
-            tar -xJf "$archive"
+            tar xJf -- "$archive"
             ;;
         *.tar)
-            tar -xf "$archive"
+            tar xf -- "$archive"
             ;;
         *.bz2)
             bunzip2 -- "$archive"

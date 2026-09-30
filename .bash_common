@@ -32,6 +32,10 @@ fi
 if [[ -r $HOME/.bash_aliases ]]; then
     source "$HOME/.bash_aliases" || return $?
 fi
+# Remove legacy function versions that were moved into bin/.
+unset -f comfy comfy-backup ytdl 2>/dev/null || :
+hash -r
+
 if [[ -r $HOME/.bash_functions ]]; then
     source "$HOME/.bash_functions" || return $?
 fi

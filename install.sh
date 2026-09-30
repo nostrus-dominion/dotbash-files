@@ -22,8 +22,8 @@ if [[ -e $backup_dir ]]; then
 fi
 mkdir -- "$backup_dir"
 
-sources=("$repo_dir/hosts/$host.bashrc" "$repo_dir/.bash_common" "$repo_dir/.bash_aliases" "$repo_dir/.bash_functions" "$repo_dir/.bash_functions.d")
-targets=("$HOME/.bashrc" "$HOME/.bash_common" "$HOME/.bash_aliases" "$HOME/.bash_functions" "$HOME/.bash_functions.d")
+sources=("$repo_dir/hosts/$host.bashrc" "$repo_dir/.bash_common" "$repo_dir/.bash_aliases" "$repo_dir/.bash_functions")
+targets=("$HOME/.bashrc" "$HOME/.bash_common" "$HOME/.bash_aliases" "$HOME/.bash_functions")
 
 for i in "${!targets[@]}"; do
     target=${targets[i]}
@@ -33,17 +33,71 @@ for i in "${!targets[@]}"; do
     ln -s -- "${sources[i]}" "$target"
 done
 
-# Expose standalone commands from bin/ through the conventional per-user PATH.
-mkdir -p -- "$HOME/.local/bin"
+# Retire the old optional-module link/directory from previous installs.
+legacy_functions_dir="$HOME/.bash_functions.d"
+if [[ -e $legacy_functions_dir || -L $legacy_functions_dir ]]; then
+    mv -- "$legacy_functions_dir" "$backup_dir/.bash_functions.d"
+fi
+
+# Install standalone commands and remember exactly which names this repo owns.
+bin_dir="$HOME/.local/bin"
+state_dir="$HOME/.local/share/dotbash-files"
+manifest="$state_dir/bin-manifest"
+mkdir -p -- "$bin_dir" "$state_dir"
+
+current_commands=()
 if [[ -d $repo_dir/bin ]]; then
     for source in "$repo_dir"/bin/*; do
         [[ -f $source ]] || continue
-        target="$HOME/.local/bin/$(basename -- "$source")"
+        current_commands+=("$(basename -- "$source")")
+    done
+fi
+
+is_current_command() {
+    local candidate=$1
+    local command_name
+
+    for command_name in "${current_commands[@]}"; do
+        [[ $candidate == "$command_name" ]] && return 0
+    done
+
+    return 1
+}
+
+# Names previously installed by this repo. git-clean predates the manifest.
+stale_candidates=(git-clean)
+if [[ -r $manifest ]]; then
+    while IFS= read -r command_name; do
+        [[ -n $command_name && $command_name != */* ]] || continue
+        stale_candidates+=("$command_name")
+    done < "$manifest"
+fi
+
+for command_name in "${stale_candidates[@]}"; do
+    is_current_command "$command_name" && continue
+
+    target="$bin_dir/$command_name"
+    if [[ -e $target || -L $target ]]; then
+        printf 'Retiring stale dotbash command: %s\n' "$command_name"
+        mv -- "$target" "$backup_dir/bin-$command_name"
+    fi
+done
+
+if [[ -d $repo_dir/bin ]]; then
+    for source in "$repo_dir"/bin/*; do
+        [[ -f $source ]] || continue
+
+        command_name=$(basename -- "$source")
+        target="$bin_dir/$command_name"
+
         if [[ -e $target || -L $target ]]; then
-            mv -- "$target" "$backup_dir/$(basename -- "$target")"
+            mv -- "$target" "$backup_dir/bin-$command_name"
         fi
+
         install -m 0755 -- "$source" "$target"
     done
 fi
+
+printf '%s\n' "${current_commands[@]}" > "$manifest"
 
 printf 'Installed %s. Previous files (if any): %s\nOpen a new Bash terminal to load the settings.\n' "$host" "$backup_dir"

@@ -1,0 +1,42 @@
+.TH MY-COMMANDS 1 "September 2026" "dotbash-files" "User Commands"
+.SH NAME
+my-commands \- list commands provided by the user's Bash configuration
+.SH SYNOPSIS
+.B my-commands
+.SH DESCRIPTION
+.B my-commands
+prints an inventory of aliases, Bash functions, optional function modules, and
+standalone commands installed in
+.IR ~/.local/bin .
+.PP
+Aliases are read from
+.IR ~/.bash_aliases .
+Functions are read from
+.I ~/.bash_functions
+and
+.IR ~/.bash_functions.d/*.bash .
+Standalone commands are discovered in
+.IR ~/.local/bin .
+.SH EXIT STATUS
+.TP
+.B 0
+The inventory was displayed.
+.TP
+.B 2
+Unexpected command-line arguments were supplied.
+.SH FILES
+.TP
+.I ~/.bash_aliases
+Shared aliases.
+.TP
+.I ~/.bash_functions
+Shared Bash functions.
+.TP
+.I ~/.bash_functions.d/
+Optional Bash function modules.
+.TP
+.I ~/.local/bin/
+Per-user executable commands.
+.SH SEE ALSO
+.BR bash (1),
+.BR git (1)

@@ -6,6 +6,11 @@ shopt -s histappend checkwinsize
 HISTSIZE=1000
 HISTFILESIZE=2000
 
+# User-installed commands (including dotbash-files/bin).
+if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 if [[ -x /usr/bin/lesspipe ]]; then
     eval "$(SHELL=/bin/sh lesspipe)"
 fi

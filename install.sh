@@ -33,4 +33,34 @@ for i in "${!targets[@]}"; do
     ln -s -- "${sources[i]}" "$target"
 done
 
+# Expose standalone commands from bin/ through the conventional per-user PATH.
+mkdir -p -- "$HOME/.local/bin"
+if [[ -d $repo_dir/bin ]]; then
+    for source in "$repo_dir"/bin/*; do
+        [[ -f $source && -x $source ]] || continue
+        target="$HOME/.local/bin/$(basename -- "$source")"
+        if [[ -e $target && ! -L $target ]]; then
+            mv -- "$target" "$backup_dir/$(basename -- "$target")"
+        else
+            rm -f -- "$target"
+        fi
+        ln -s -- "$source" "$target"
+    done
+fi
+
+# Install repository-owned man pages.
+mkdir -p -- "$HOME/.local/share/man/man1"
+if [[ -d $repo_dir/man/man1 ]]; then
+    for source in "$repo_dir"/man/man1/*; do
+        [[ -f $source ]] || continue
+        target="$HOME/.local/share/man/man1/$(basename -- "$source")"
+        if [[ -e $target && ! -L $target ]]; then
+            mv -- "$target" "$backup_dir/$(basename -- "$target")"
+        else
+            rm -f -- "$target"
+        fi
+        ln -s -- "$source" "$target"
+    done
+fi
+
 printf 'Installed %s. Previous files (if any): %s\nOpen a new Bash terminal to load the settings.\n' "$host" "$backup_dir"

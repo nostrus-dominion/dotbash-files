@@ -1,61 +1,170 @@
 #!/usr/bin/env bash
-# description: Show a self-updating reference of custom shell commands.
+# description: Show a self-updating reference of commands provided by dotbash-files.
 # usage: my-commands
 
 set -u
 
+usage() {
+    cat <<'EOF'
+Usage: my-commands
+
+Show aliases, shell functions, and standalone commands provided by dotbash-files.
+EOF
+}
+
+if (( $# == 1 )) && [[ $1 == -h || $1 == --help ]]; then
+    usage
+    exit 0
+fi
+
 if (( $# != 0 )); then
-    echo "Usage: my-commands" >&2
+    usage >&2
     exit 2
 fi
 
-echo "MY COMMANDS"
-echo "==========="
-echo
+print_table() {
+    local title=$1
+    local names_ref=$2
+    local values_ref=$3
+    local -n names=$names_ref
+    local -n values=$values_ref
+    local width=0
+    local i
 
-echo "ALIASES"
-echo "======="
-if [[ -r $HOME/.bash_aliases ]]; then
-    sed -n -E "s/^alias ([^=]+)=(.*)$/  \\1                  \\2/p" "$HOME/.bash_aliases"
-fi
+    printf '%s\n' "$title"
+    printf '%*s\n' "${#title}" '' | tr ' ' '-'
 
-echo
-echo "FUNCTIONS"
-echo "========="
-for file in "$HOME/.bash_functions" "$HOME"/.bash_functions.d/*.bash; do
-    [[ -r $file ]] || continue
-    awk '
-        /^[[:space:]]*#[^!]/ {
-            comment=$0
-            sub(/^[[:space:]]*#[[:space:]]?/, "", comment)
-            if (comment ~ /^=+$/ || comment == "") desc=""
-            else desc=comment
-            next
-        }
-        /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*\(\)[[:space:]]*\{/ {
-            line=$0
-            sub(/^[[:space:]]*/, "", line)
-            name=line
-            sub(/\(\).*/, "", name)
-            printf "  %-22s %s\n", name, desc
-            desc=""
-            next
-        }
-        /^[[:space:]]*$/ { next }
-        { desc="" }
-    ' "$file"
-done
+    if (( ${#names[@]} == 0 )); then
+        echo '  (none)'
+        return
+    fi
 
-echo
-echo "STANDALONE COMMANDS"
-echo "==================="
-if [[ -d $HOME/.local/bin ]]; then
-    for file in "$HOME"/.local/bin/*; do
-        [[ -f $file && -x $file ]] || continue
-        name=$(basename -- "$file")
-        usage=$(awk -F': *' '/^# usage:/ {sub(/^# usage:[[:space:]]*/, ""); print; exit}' "$file")
-        description=$(awk -F': *' '/^# description:/ {sub(/^# description:[[:space:]]*/, ""); print; exit}' "$file")
-        [[ -n $usage ]] || usage=$name
-        printf '  %-22s %s\n' "$usage" "$description"
+    for i in "${!names[@]}"; do
+        (( ${#names[i]} > width )) && width=${#names[i]}
     done
+
+    for i in "${!names[@]}"; do
+        printf '  %-*s  %s\n' "$width" "${names[i]}" "${values[i]}"
+    done
+}
+
+alias_names=()
+alias_values=()
+
+if [[ -r $HOME/.bash_aliases ]]; then
+    while IFS= read -r -d '' name && IFS= read -r -d '' definition; do
+        value=${definition#*=}
+
+        if (( ${#value} >= 2 )) &&
+           [[ ${value:0:1} == "'" && ${value: -1} == "'" ]]; then
+            value=${value:1:${#value}-2}
+        fi
+
+        value=$(printf '%s' "$value" |
+            sed -E ':a;N;$!ba;s/\\\n[[:space:]]*/ /g;s/[[:space:]]+/ /g')
+
+        alias_names+=("$name")
+        alias_values+=("$value")
+    done < <(
+        bash --noprofile --norc -c '
+            source "$1"
+            while IFS= read -r name; do
+                definition=$(alias "$name")
+                printf "%s\0%s\0" "$name" "$definition"
+            done < <(compgen -A alias | LC_ALL=C sort)
+        ' _ "$HOME/.bash_aliases"
+    )
 fi
+
+function_names=()
+function_values=()
+
+if [[ -r $HOME/.bash_functions ]]; then
+    while IFS=$'\t' read -r name description; do
+        [[ -n $name ]] || continue
+        function_names+=("$name")
+        function_values+=("$description")
+    done < <(
+        awk '
+            /^[[:space:]]*#[^!]/ {
+                comment=$0
+                sub(/^[[:space:]]*#[[:space:]]?/, "", comment)
+
+                if (comment ~ /^=+$/) {
+                    desc=""
+                } else if (desc == "" && comment != "") {
+                    desc=comment
+                }
+                next
+            }
+
+            /^[[:space:]]*$/ {
+                desc=""
+                next
+            }
+
+            /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*\(\)[[:space:]]*\{/ {
+                line=$0
+                sub(/^[[:space:]]*/, "", line)
+                name=line
+                sub(/\(\).*/, "", name)
+                printf "%s\t%s\n", name, desc
+                desc=""
+                next
+            }
+
+            { desc="" }
+        ' "$HOME/.bash_functions"
+    )
+fi
+
+repo_dir=''
+if [[ -L $HOME/.bash_common ]]; then
+    common_file=$(readlink -f -- "$HOME/.bash_common" 2>/dev/null || true)
+    if [[ -n $common_file ]]; then
+        repo_dir=$(dirname -- "$common_file")
+    fi
+fi
+
+command_names=()
+command_values=()
+
+if [[ -n $repo_dir && -d $repo_dir/bin ]]; then
+    for file in "$repo_dir"/bin/*; do
+        [[ -f $file ]] || continue
+
+        name=$(basename -- "$file")
+        usage=$(awk '
+            /^# usage:[[:space:]]*/ {
+                sub(/^# usage:[[:space:]]*/, "")
+                print
+                exit
+            }
+        ' "$file")
+        description=$(awk '
+            /^# description:[[:space:]]*/ {
+                sub(/^# description:[[:space:]]*/, "")
+                print
+                exit
+            }
+        ' "$file")
+
+        [[ -n $usage ]] || usage=$name
+        [[ -n $description ]] || description='No description provided.'
+
+        command_names+=("$usage")
+        command_values+=("$description")
+    done
+else
+    command_names+=("(repository unavailable)")
+    command_values+=("~/.bash_common is not linked to the dotbash-files repository.")
+fi
+
+echo 'MY COMMANDS'
+echo '==========='
+echo
+print_table 'ALIASES' alias_names alias_values
+echo
+print_table 'FUNCTIONS' function_names function_values
+echo
+print_table 'COMMANDS' command_names command_values

@@ -114,7 +114,7 @@ It:
 5. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
 6. moves commands that disappeared from the repo into the backup directory on the next install.
 
-The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. The pre-manifest `git-clean` command is also treated as a known stale command.
+The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, and `ytdl` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
 
 Open a new Bash terminal after installation.
 

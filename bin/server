@@ -6,6 +6,20 @@ set -u
 
 idle_timeout=1800
 
+format_duration() {
+    local seconds=$1
+
+    if (( seconds >= 3600 && seconds % 3600 == 0 )); then
+        local hours=$((seconds / 3600))
+        printf '%d hour%s' "$hours" "$([[ $hours -eq 1 ]] && printf '' || printf 's')"
+    elif (( seconds >= 60 && seconds % 60 == 0 )); then
+        local minutes=$((seconds / 60))
+        printf '%d minute%s' "$minutes" "$([[ $minutes -eq 1 ]] && printf '' || printf 's')"
+    else
+        printf '%d second%s' "$seconds" "$([[ $seconds -eq 1 ]] && printf '' || printf 's')"
+    fi
+}
+
 runtime_base=${XDG_RUNTIME_DIR:-"$HOME/.cache"}
 state_dir="$runtime_base/dotbash-files"
 pid_file="$state_dir/server.pid"
@@ -25,11 +39,14 @@ The default port is 8000.
 By default, server generates temporary credentials and requires HTTP Basic
 Authentication. Use --unsecure to serve without authentication.
 
-The server detaches from the terminal and automatically stops after 30 minutes
-without an HTTP request. Use 'server --stop' to stop it manually.
+The server detaches from the terminal and automatically stops after the
+configured idle timeout without an HTTP request. Use 'server --stop' to stop
+it manually.
 
 Basic Auth protects against casual access, but plain HTTP is not encrypted.
 EOF
+
+    printf 'Current idle timeout: %s\n' "$(format_duration "$idle_timeout")"
 }
 
 open_browser() {
@@ -284,7 +301,7 @@ fi
 
 printf 'PID: %s\n' "$server_pid"
 printf 'Log: %s\n' "$log_file"
-echo 'Idle timeout: 30 minutes'
+printf 'Idle timeout: %s\n' "$(format_duration "$idle_timeout")"
 echo 'Stop with: server --stop'
 
 open_browser "$url"

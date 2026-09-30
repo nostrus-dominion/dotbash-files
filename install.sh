@@ -30,12 +30,7 @@ install_root() {
     local prompt_line
     local tmp
 
-    prompt_line=$(sed -n '/^[[:space:]]*export PS1=/p' "$repo_dir/root.bashrc" | head -n 1)
-
-    if [[ -z $prompt_line ]]; then
-        echo "Error: root.bashrc does not contain an export PS1 line." >&2
-        exit 1
-    fi
+    prompt_line='export PS1="\[\033[38;5;160m\][\u@\h\[$(tput sgr0)\]:\[$(tput sgr0)\]\[\033[38;5;27m\]\w\[$(tput sgr0)\]\[\033[38;5;196m\]]\\$\[$(tput sgr0)\] \[$(tput sgr0)\]"'
 
     echo "dotbash-files installer"
     echo "Installing ROOT prompt into /root/.bashrc"

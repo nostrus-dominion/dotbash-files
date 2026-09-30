@@ -17,7 +17,6 @@ dotbash-files/
 ├── .bash_exports
 ├── .bash_aliases
 ├── .bash_functions
-├── root.bashrc
 ├── install.sh
 └── README.md
 ```
@@ -30,7 +29,6 @@ dotbash-files/
 - `.bash_aliases` — simple command substitutions.
 - `.bash_functions` — commands that must affect the current shell, such as changing directory, activating a virtual environment, or reading Bash history.
 - `bin/` — standalone programs installed into `~/.local/bin`.
-- `root.bashrc` — the root-only prompt definition used by the installer.
 
 If a command does not need to modify the current Bash process, it should normally live in `bin/`.
 
@@ -130,7 +128,7 @@ sudo bash install.sh
 
 When `EUID == 0`, the installer performs only the root prompt installation. It does not install aliases, functions, exports, standalone commands, or the normal-user prompt.
 
-The root prompt from `root.bashrc` is written to the bottom of `/root/.bashrc` inside a managed block:
+The root prompt is defined directly in `install.sh` and written to the bottom of `/root/.bashrc` inside a managed block:
 
 ```bash
 # >>> dotbash-files root prompt >>>
@@ -157,7 +155,7 @@ Git discovers executables named `git-<name>` on PATH, which is why `git-check-cl
 The Bash configuration can be syntax-checked with:
 
 ```bash
-bash -n .bashrc .bash_common .bash_exports .bash_aliases .bash_functions root.bashrc install.sh
+bash -n .bashrc .bash_common .bash_exports .bash_aliases .bash_functions install.sh
 
 for file in bin/*; do
     [[ $(head -n 1 "$file") == '#!/usr/bin/env bash' ]] && bash -n "$file"

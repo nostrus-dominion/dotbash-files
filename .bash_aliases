@@ -10,7 +10,7 @@ alias .4='cd ../../../../'
 alias .5='cd ../../../../..'
 alias .r='cd /'
 
-# saftey nets
+# safety nets
 alias chgrp='chgrp --preserve-root'
 alias chmod='chmod --preserve-root'
 alias chown='chown --preserve-root'

@@ -114,22 +114,44 @@ color_sgr=(
 
 SELECTED_SGR=''
 
+print_color_menu() {
+    local row
+    local column
+    local option
+    local index
+
+    echo >/dev/tty
+    echo "Colors:" >/dev/tty
+    echo >/dev/tty
+
+    for (( row = 0; row < 6; row++ )); do
+        for (( column = 0; column < 3; column++ )); do
+            option=$((row + 1 + column * 6))
+
+            if (( option <= ${#color_names[@]} )); then
+                index=$((option - 1))
+                printf '  %2d) \033[%sm%-16s\033[0m' \
+                    "$option" "${color_sgr[index]}" "${color_names[index]}" >/dev/tty
+            else
+                printf '  %2d) %-16s' "$option" "Custom ANSI-256" >/dev/tty
+            fi
+
+            (( column < 2 )) && printf '  ' >/dev/tty
+        done
+
+        echo >/dev/tty
+    done
+
+    echo >/dev/tty
+}
+
 select_color() {
     local label=$1
     local choice
     local custom
-    local i
 
     while true; do
-        printf '\n%s color:\n\n' "$label" >/dev/tty
-
-        for i in "${!color_names[@]}"; do
-            printf '  %2d) \033[%sm%s\033[0m\n' \
-                "$((i + 1))" "${color_sgr[i]}" "${color_names[i]}" >/dev/tty
-        done
-
-        printf '  18) Custom ANSI-256 color\n\n' >/dev/tty
-        printf 'Selection: ' >/dev/tty
+        printf '%s color: ' "$label" >/dev/tty
         read -r choice </dev/tty || exit 1
 
         if [[ $choice =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#color_names[@]} )); then
@@ -169,6 +191,8 @@ install_user() {
     local i
 
     echo "dotbash-files installer"
+
+    print_color_menu
 
     select_color "Username"
     user_sgr=$SELECTED_SGR

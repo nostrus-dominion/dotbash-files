@@ -24,9 +24,10 @@ runtime_base=${XDG_RUNTIME_DIR:-"${TMPDIR:-/tmp}/dotbash-$UID"}
 runtime_dir="$runtime_base/dotbash-files"
 state_base=${XDG_STATE_HOME:-"$HOME/.local/state"}
 state_dir="$state_base/dotbash-files"
+log_dir="$state_dir/logs"
 
 pid_file="$runtime_dir/server.pid"
-log_file="$state_dir/server.log"
+log_file="$log_dir/server.log"
 
 usage() {
     cat <<'EOF'
@@ -162,8 +163,8 @@ command -v python3 >/dev/null 2>&1 || {
     exit 1
 }
 
-mkdir -p -- "$runtime_dir" "$state_dir"
-chmod 0700 -- "$runtime_dir" "$state_dir" 2>/dev/null || :
+mkdir -p -- "$runtime_dir" "$log_dir"
+chmod 0700 -- "$runtime_dir" "$state_dir" "$log_dir" 2>/dev/null || :
 
 if existing_pid=$(managed_pid); then
     printf 'A dotbash server is already running as PID %s.\n' "$existing_pid" >&2

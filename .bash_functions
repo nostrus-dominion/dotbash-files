@@ -377,7 +377,7 @@ targz() {
     local input=${1%/}
     local archive="${input}.tar.gz"
     local compressor
-    local pipeline_status
+    local -a pipeline_status
 
     if [[ ! -e $input && ! -L $input ]]; then
         printf "Error: '%s' does not exist.\n" "$input" >&2

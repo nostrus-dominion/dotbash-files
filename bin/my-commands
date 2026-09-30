@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -u
+
+if (( $# != 0 )); then
+    echo "Usage: my-commands" >&2
+    exit 2
+fi
+
+echo "Aliases"
+echo "======="
+if [[ -r $HOME/.bash_aliases ]]; then
+    sed -n "s/^alias \([^=]*\)=.*/\1/p" "$HOME/.bash_aliases" | sort
+else
+    echo "(no ~/.bash_aliases found)"
+fi
+
+echo
+echo "Functions"
+echo "========="
+if [[ -r $HOME/.bash_functions ]]; then
+    sed -n -E 's/^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_-]*)\(\)[[:space:]]*\{.*/\1/p' "$HOME/.bash_functions"
+else
+    echo "(no ~/.bash_functions found)"
+fi
+
+if [[ -d $HOME/.bash_functions.d ]]; then
+    for file in "$HOME"/.bash_functions.d/*.bash; do
+        [[ -r $file ]] || continue
+        sed -n -E 's/^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_-]*)\(\)[[:space:]]*\{.*/\1/p' "$file"
+    done
+fi | sort -u
+
+echo
+echo "Standalone commands"
+echo "==================="
+if [[ -d $HOME/.local/bin ]]; then
+    find "$HOME/.local/bin" -maxdepth 1 \( -type f -o -type l \) -perm -u+x -printf '%f\n' 2>/dev/null | sort
+else
+    echo "(no ~/.local/bin found)"
+fi

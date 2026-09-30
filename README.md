@@ -200,6 +200,9 @@ Running the root installer again replaces that managed block instead of appendin
 A few conveniences intentionally remain shell functions or aliases rather than standalone commands:
 
 - `tmpd [name]` — create a temporary directory and immediately enter it.
+- `zipit [date]` — bundle the current directory into an uncompressed `zipit.zip` for fast, easy movement; an optional date expression keeps only entries modified on or before that cutoff.
+- `store [date]` — preserve the current Unix filesystem tree in an uncompressed `store.tar`; an optional date expression keeps only entries modified on or before that cutoff.
+- `targz <file-or-directory>` — create a portable compressed `.tar.gz`, using `pigz` when available and falling back to `gzip`.
 - `man` — wraps the system man command with colorized headings and emphasis.
 - `tre` — compact, colorized tree view with hidden files, common dependency directories excluded, and pager output.
 - `pubkey` — copy the preferred SSH public key (`id_ed25519.pub`, then `id_rsa.pub`) to the desktop clipboard using `wl-copy`, `xclip`, or `pbcopy`; if no clipboard command is available, print the key instead.
@@ -245,4 +248,4 @@ for file in bin/*; do
 done
 ```
 
-Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `ruby`, `tree`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.
+Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `ruby`, `tree`, `7z`, `tar`, optional `pigz`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.

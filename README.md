@@ -239,7 +239,10 @@ Git discovers executables named `git-<name>` on PATH, which is why `git-check-cl
 ```bash
 dotbash-doctor           # all diagnostics and behavior checks, automatically
 dotbash-doctor --check   # optional: repository validation only
+dotbash-doctor --no-color # optional: disable terminal color
 ```
+
+Output uses a MOTD-style banner, host/time metadata, grouped diagnostics, a compact dependency grid, concise runtime versions, and a final health summary. Green means passed, yellow means warnings, and red means failed checks. The layout adapts to terminal width. Color is automatic for terminals, disabled for pipes/logs and `NO_COLOR`, and configurable with `--color=auto|always|never` or `--no-color`.
 
 All validation code lives inside `bin/dotbash-doctor`; there is no separate tests directory or supporting test script. Before installation, run `bin/dotbash-doctor` from the checkout. The installed symlink works from any directory. It replaces `bin/test.sh`; rerun `install.sh` to retire the old installed command.
 

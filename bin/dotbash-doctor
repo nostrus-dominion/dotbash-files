@@ -1,28 +1,35 @@
 #!/usr/bin/env bash
 # description: Run all installation, dependency, syntax and isolated behavior checks automatically.
-# usage: dotbash-doctor [--check | --help]
+# usage: dotbash-doctor [--check] [--color=auto|always|never] [--help]
 
 set -uo pipefail
 
 usage() {
     cat <<'HELP'
-Usage: dotbash-doctor [--check | --help]
+Usage: dotbash-doctor [--check] [--color=auto|always|never] [--help]
   no flag  Run all diagnostics and isolated behavior checks automatically.
   --check  Repository syntax, executable modes, metadata and optional ShellCheck only.
+  --color  Color mode (auto is the default); --no-color is also accepted.
+           Auto color respects NO_COLOR and disables ANSI escapes for pipes/logs.
 Missing optional tools are warnings. Failed checks exit 1; invalid arguments exit 2.
 Behavior checks use temporary fixtures and a temporary home, then clean up.
 The doctor never changes your real settings or sources your private local code.
 HELP
 }
 mode=all
-if (( $# > 1 )); then usage >&2; exit 2; fi
-case ${1:-} in
-    '') ;;
-    --check) mode=check ;;
-    --test) mode=all ;; # Compatibility with the previous invocation.
-    -h|--help) usage; exit 0 ;;
-    *) usage >&2; exit 2 ;;
-esac
+color_mode=auto
+while (( $# )); do
+    case $1 in
+        --check) mode=check ;;
+        --test) mode=all ;; # Compatibility with the previous invocation.
+        --color=auto) color_mode=auto ;;
+        --color=always) color_mode=always ;;
+        --color=never|--no-color) color_mode=never ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+    shift
+done
 
 # Follow the installed symlink before locating the checkout, including relative links.
 script=${BASH_SOURCE[0]}
@@ -33,12 +40,100 @@ while [[ -L $script ]]; do
 done
 repo_dir=$(cd -P -- "$(dirname -- "$script")/.." && pwd) || exit 1
 failures=0 warnings=0
-ok() { printf 'OK   %s\n' "$*"; }
-warn() { printf 'WARN %s\n' "$*"; warnings=$((warnings + 1)); }
-fail() { printf 'FAIL %s\n' "$*" >&2; failures=$((failures + 1)); }
+# Terminal presentation: bold MOTD-style output, with no color dependency.
+passes=0
+started_at=$SECONDS
+columns=${COLUMNS:-80}
+if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    detected_columns=$(tput cols 2>/dev/null || :)
+    [[ $detected_columns =~ ^[0-9]+$ ]] && columns=$detected_columns
+fi
+[[ $columns =~ ^[1-9][0-9]{0,3}$ ]] || columns=80
+(( columns >= 28 )) || columns=28
+(( columns <= 100 )) || columns=100
+
+reset='' bold='' dim='' cyan='' green='' yellow='' red='' white=''
+if [[ $color_mode == always ]] ||
+    { [[ $color_mode == auto && -t 1 && ${TERM:-dumb} != dumb && ! -v NO_COLOR ]]; }; then
+    reset=$'\e[0m'; bold=$'\e[1m'; dim=$'\e[2m'
+    cyan=$'\e[96m'; green=$'\e[92m'; yellow=$'\e[93m'
+    red=$'\e[91m'; white=$'\e[97m'
+fi
+
+rule() {
+    local line
+    printf -v line '%*s' "$((columns - 4))" ''
+    printf '  %s%s%s\n' "$dim" "${line// /-}" "$reset"
+}
+section() {
+    printf '\n  %s%s// %s%s\n' "$bold" "$cyan" "$1" "$reset"
+    rule
+}
+field() {
+    local label=$1 value=$2 dots
+    printf -v dots '%*s' "$((18 - ${#label}))" ''
+    printf '  %s%s%s: %s%s%s\n' "$dim" "$label" "${dots// /.}" "$reset$white" "$value" "$reset"
+}
+status_row() {
+    local label=$1 message=$2 tone=$green marker=' OK '
+    case $label in WARN) tone=$yellow; marker=WARN ;; FAIL) tone=$red; marker=FAIL ;; esac
+    printf '  %s%s[%s]%s %s\n' "$bold" "$tone" "$marker" "$reset" "$message"
+}
+ok() { passes=$((passes + 1)); status_row OK "$*"; }
+warn() { warnings=$((warnings + 1)); status_row WARN "$*"; }
+fail() { failures=$((failures + 1)); status_row FAIL "$*" >&2; }
+
+banner() {
+    local host platform stamp
+    host=$(hostname -s 2>/dev/null || printf unknown)
+    platform=$(uname -sm 2>/dev/null || printf unknown)
+    stamp=$(date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || printf unknown)
+    printf '\n%s%s' "$bold" "$green"
+    if (( columns >= 55 )); then
+        cat <<'BANNER'
+   ____   ___ _____ ____    _    ____  _   _
+  |  _ \ / _ \_   _| __ )  / \  / ___|| | | |
+  | | | | | | || | |  _ \ / _ \ \___ \| |_| |
+  | |_| | |_| || | | |_) / ___ \ ___) |  _  |
+  |____/ \___/ |_| |____/_/   \_\____/|_| |_|
+BANNER
+    else
+        printf '  >>> DOTBASH <<<\n'
+    fi
+    if (( columns >= 40 )); then
+        printf '%s  %sDOCTOR%s  %s/ /  SHELL DIAGNOSTICS%s\n\n' "$reset" "$cyan$bold" "$reset" "$dim" "$reset"
+    else
+        printf '%s  %sDOCTOR // DIAGNOSTICS%s\n\n' "$reset" "$cyan$bold" "$reset"
+    fi
+    field Host "$host"
+    field Platform "$platform"
+    field Time "$stamp"
+    field Mode "$([[ $mode == all ]] && printf 'FULL SCAN' || printf 'REPOSITORY CHECK')"
+}
+
+summary() {
+    local health='HEALTHY' tone=$green
+    if (( failures > 0 )); then health='NEEDS REPAIR'; tone=$red
+    elif (( warnings > 0 )); then health='ATTENTION'; tone=$yellow; fi
+    section 'SCAN SUMMARY'
+    printf '  %s%s%s%s\n\n' "$bold" "$tone" "$health" "$reset"
+    field Passed "$passes"
+    field Warnings "$warnings"
+    field Failures "$failures"
+    field Elapsed "$((SECONDS - started_at))s"
+    rule
+    if (( failures > 0 )); then
+        printf '  %sFix the failed checks above and run the doctor again.%s\n\n' "$red" "$reset"
+    elif (( warnings > 0 )); then
+        printf '  %sNo failed checks. Review warnings and skipped checks above.%s\n\n' "$yellow" "$reset"
+    else
+        printf '  %sAll selected checks passed. Shell is in good shape.%s\n\n' "$green" "$reset"
+    fi
+}
 
 check_repository() {
     local file first_line
+    section 'REPOSITORY INTEGRITY'
     local -a bash_files=() ruby_files=()
     for file in .bashrc .bash_common .bash_exports .bash_aliases .bash_functions install.sh; do
         file="$repo_dir/$file"
@@ -75,18 +170,24 @@ check_repository() {
 }
 
 check_machine() {
-    local file name resolved tool consumers version spec
+    local file name resolved tool consumers version spec runtime_name
+    local linked_commands=0 total_commands=0 linked_shell=0
+    section 'INSTALLATION & LOCAL SETTINGS'
     case ":$PATH:" in *":$HOME/.local/bin:"*) ok '~/.local/bin is on PATH' ;; *) warn '~/.local/bin is absent from PATH; open/reload Bash after installing' ;; esac
     for file in "$repo_dir"/bin/*; do
         name=${file##*/}
+        total_commands=$((total_commands + 1))
         if [[ -L $HOME/.local/bin/$name && ! -e $HOME/.local/bin/$name ]]; then
             fail "Broken command symlink: $name"
         elif [[ -e $HOME/.local/bin/$name ]]; then
-            [[ $HOME/.local/bin/$name -ef $file ]] || warn "Installed $name does not point to this checkout; rerun install.sh"
+            if [[ $HOME/.local/bin/$name -ef $file ]]; then
+                linked_commands=$((linked_commands + 1))
+            else warn "Installed $name does not point to this checkout; rerun install.sh"; fi
         else warn "$name is not installed; run bash install.sh"; fi
         resolved=$(type -P "$name" || :)
         if [[ -n $resolved && ! $resolved -ef $file ]]; then warn "$name is shadowed on PATH by $resolved"; fi
     done
+    field Commands "$linked_commands / $total_commands linked to this checkout"
     # Private code is inspected for syntax only, never executed by the doctor.
     if [[ -f $HOME/.bash_local ]]; then
         bash -n "$HOME/.bash_local" && ok '~/.bash_local syntax' || fail '~/.bash_local syntax'
@@ -103,12 +204,31 @@ check_machine() {
     done
     for file in .bashrc .bash_common .bash_exports .bash_aliases .bash_functions; do
         if [[ -L $HOME/$file && ! -e $HOME/$file ]]; then fail "Broken shell symlink: $file"
-        elif [[ -e $HOME/$file && $HOME/$file -ef $repo_dir/$file ]]; then ok "Installed $file"
+        elif [[ -e $HOME/$file && $HOME/$file -ef $repo_dir/$file ]]; then linked_shell=$((linked_shell + 1))
         else warn "$file does not point to this checkout"; fi
     done
+    field 'Shared config' "$linked_shell / 5 files linked"
+    if command -v git >/dev/null 2>&1; then
+        git config --global --get user.name >/dev/null 2>&1 && git config --global --get user.email >/dev/null 2>&1 && ok 'Native Git identity configured' || warn 'Native Git identity incomplete'
+    fi
+    section 'TOOLCHAIN / DEPENDENCIES'
+    local dependency_columns=1 cell_width index=0 tone label
+    local -a missing_dependencies=()
+    (( columns < 48 )) || dependency_columns=2
+    (( columns < 72 )) || dependency_columns=3
+    cell_width=$(((columns - 4) / dependency_columns))
     # Per-command dependencies are optional for the installation as a whole.
     while IFS='|' read -r tool consumers; do
-        if command -v "$tool" >/dev/null 2>&1; then ok "$tool ($consumers)"; else warn "$tool missing: $consumers"; fi
+        if command -v "$tool" >/dev/null 2>&1; then
+            tone=$green; label='[OK]'; passes=$((passes + 1))
+        else
+            tone=$yellow; label='[WARN]'; warnings=$((warnings + 1))
+            missing_dependencies+=("$tool missing: $consumers")
+        fi
+        (( index % dependency_columns != 0 )) || printf '  '
+        printf '%-*s %s%-6s%s ' "$((cell_width - 8))" "$tool" "$tone" "$label" "$reset"
+        index=$((index + 1))
+        (( index % dependency_columns != 0 )) || printf '\n'
     done <<'DEPS'
 python3|server, zipit, ytdl
 ruby|git wtf
@@ -135,19 +255,28 @@ bzip2|extract .bz2
 xz|extract .tar.xz
 7z|extract .7z
 DEPS
+    (( index % dependency_columns == 0 )) || printf '\n'
+    if (( ${#missing_dependencies[@]} > 0 )); then
+        printf '\n'
+        for consumers in "${missing_dependencies[@]}"; do status_row WARN "$consumers"; done
+    fi
     if command -v tar >/dev/null 2>&1; then
         [[ $(tar --version 2>/dev/null) == *'GNU tar'* ]] || command -v gtar >/dev/null 2>&1 || warn 'store requires GNU tar; install gtar on macOS'
     fi
-    printf '\nRuntime versions:\n'
-    printf '  bash %s\n' "$BASH_VERSION"
+    section 'RUNTIME VERSIONS'
+    field Bash "${BASH_VERSION%%(*}"
     for spec in python3 node php ruby git; do
         command -v "$spec" >/dev/null 2>&1 || continue
         version=$("$spec" --version 2>&1 | head -n 1)
-        printf '  %s\n' "$version"
+        case $spec in
+            python3) runtime_name=Python; version=${version#Python } ;;
+            node) runtime_name=Node ;;
+            php) runtime_name=PHP; version=${version#PHP }; version=${version%% *} ;;
+            ruby) runtime_name=Ruby; version=${version#ruby }; version=${version%% *} ;;
+            git) runtime_name=Git; version=${version#git version }; version=${version%% *} ;;
+        esac
+        field "$runtime_name" "$version"
     done
-    if command -v git >/dev/null 2>&1; then
-        git config --global --get user.name >/dev/null 2>&1 && git config --global --get user.email >/dev/null 2>&1 && ok 'Native Git identity configured' || warn 'Native Git identity incomplete'
-    fi
 }
 
 # Behavior checks are embedded here; no external test scripts are required.
@@ -488,6 +617,7 @@ DOCTOR_FIND_VERIFY
 
 run_behavior_checks() {
     local output reason tool missing=false
+    section 'BEHAVIOR CHECKS'
     for tool in python3 bash mktemp; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             warn "$tool missing: isolated behavior checks skipped"
@@ -516,10 +646,11 @@ run_behavior_checks() {
     fi
 }
 
+banner
 check_repository
 if [[ $mode == all ]]; then
     check_machine
     run_behavior_checks
 fi
-printf '\nDoctor: %d failure(s), %d warning(s).\n' "$failures" "$warnings"
+summary
 (( failures == 0 ))

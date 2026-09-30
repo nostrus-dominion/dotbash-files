@@ -3,7 +3,7 @@
 # Personal Bash utility functions.
 #
 # Optional dependencies used by individual functions:
-#   bc, curl, jq, lsof, lynx, pygmentize, rsync, 7z
+#   bc, curl, jq, lynx, pygmentize, rsync, 7z
 #   tar, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
 #
 # File managers supported by open():
@@ -11,7 +11,7 @@
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact ports rm 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -48,63 +48,6 @@ iftop() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] &&
 tcpdump() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command tcpdump -i "$interface"; }
 # Show vnStat data for the default IPv4 interface unless one is specified.
 vnstat() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command vnstat -i "$interface"; }
-
-# Show listening TCP/UDP sockets, optionally restricted to a local port.
-ports() {
-    if (( $# > 1 )) || { (( $# == 1 )) && [[ ! $1 =~ ^[0-9]+$ ]]; }; then
-        echo 'Usage: ports [port]' >&2
-        return 2
-    fi
-    if (( $# == 0 )); then
-        ss -tulnp
-        return
-    fi
-    if (( ${#1} > 5 )); then
-        echo 'Port must be between 1 and 65535.' >&2
-        return 2
-    fi
-    local port=$((10#$1))
-    if (( port < 1 || port > 65535 )); then
-        echo 'Port must be between 1 and 65535.' >&2
-        return 2
-    fi
-    ss -tulnp "sport = :$port"
-}
-
-# Show the TCP listener on a port and its owning process when visible.
-port() {
-    if [[ $# -ne 1 || ! $1 =~ ^[0-9]+$ || ${#1} -gt 5 ]]; then
-        echo 'Usage: port <port>' >&2
-        return 2
-    fi
-
-    local port_number=$((10#$1))
-    if (( port_number < 1 || port_number > 65535 )); then
-        echo 'Port must be between 1 and 65535.' >&2
-        return 2
-    fi
-
-    command -v ss >/dev/null 2>&1 || {
-        echo 'Error: ss is not installed or not in PATH.' >&2
-        return 1
-    }
-
-    local listener
-    listener=$(ss -H -ltnp "sport = :$port_number" 2>/dev/null)
-
-    if [[ -z $listener ]]; then
-        printf 'Nothing is listening on TCP port %d.\n' "$port_number"
-        return 1
-    fi
-
-    ss -ltnp "sport = :$port_number"
-
-    if [[ $listener != *'users:('* && $EUID -ne 0 ]]; then
-        echo
-        echo 'Process details are hidden from this user.'
-        printf "Try: sudo ss -ltnp 'sport = :%d'\n" "$port_number"
-    fi
-}
 
 # Show local IPv4 addresses and the public IPv4 address.
 myip() {
@@ -456,63 +399,6 @@ fixtime() {
 # ============================================================================
 # Process and system utilities
 # ============================================================================
-
-# Find processes using a TCP/UDP port and terminate them gracefully.
-freeport() {
-    if [[ $# -ne 1 || ! "$1" =~ ^[0-9]+$ || "$1" -lt 1 || "$1" -gt 65535 ]]; then
-        echo "Usage: freeport <port>"
-        return 1
-    fi
-
-    local port="$1"
-    local pids
-
-    if ! command -v lsof &>/dev/null; then
-        echo "Error: lsof is not installed or not in PATH." >&2
-        return 1
-    fi
-
-    pids=$(lsof -t -i :"$port" 2>/dev/null | sort -u)
-
-    if [[ -z "$pids" ]]; then
-        if ss -H -ltn "sport = :$port" 2>/dev/null | grep -q .; then
-            printf 'TCP port %s is in use, but the owning process is hidden from this user.\n' "$port" >&2
-            printf "Inspect it with: sudo ss -ltnp 'sport = :%s'\n" "$port" >&2
-            return 1
-        fi
-
-        echo "Port $port is already free."
-        return 0
-    fi
-
-    echo "Processes using port $port:"
-    lsof -nP -i :"$port"
-    echo
-
-    local pid
-    for pid in $pids; do
-        printf 'Sending TERM to PID %s...\n' "$pid"
-        kill "$pid" 2>/dev/null || {
-            printf 'Warning: could not terminate PID %s.\n' "$pid" >&2
-        }
-    done
-
-    sleep 1
-
-    local remaining
-    remaining=$(lsof -t -i :"$port" 2>/dev/null | sort -u)
-
-    if [[ -z "$remaining" ]]; then
-        echo "Port $port is now free."
-        return 0
-    fi
-
-    echo "Port $port is still in use:"
-    lsof -nP -i :"$port"
-    echo
-    echo "If necessary, terminate the remaining process(es) manually."
-    return 1
-}
 
 # Show the top 10 commands from Bash history.
 history10() {

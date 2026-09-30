@@ -13,6 +13,7 @@ dotbash-files/
 │   ├── digga
 │   ├── git-check-clean
 │   ├── git-reset-repo
+│   ├── git-wtf
 │   ├── my-commands
 │   ├── ports
 │   ├── repo
@@ -62,6 +63,25 @@ Accepted values:
 - `100` through `32768` — persist exactly that many commands.
 
 The default for a new install is `1000`.
+
+## Git identity
+
+When Git is installed, the installer maintains a machine-local identity file at:
+
+```text
+~/.local/gitconfig
+```
+
+On first setup it asks for the Git author name and email, using any existing global values as defaults. Linux uses Git's `cache` credential helper by default; macOS uses `osxkeychain`.
+
+The installer then ensures the normal global Git config includes that local file:
+
+```ini
+[include]
+    path = /home/user/.local/gitconfig
+```
+
+On later installs, the existing local identity is preserved unless you explicitly choose to change it. The file is mode `0600` and is not stored in this repository.
 
 ## Environment and NVM
 
@@ -146,9 +166,10 @@ It:
 3. preserves an existing `~/.bash_prompt` unless you explicitly choose to change its colors; otherwise it generates the prompt;
 4. creates `~/.bash_local` once if it is missing and leaves it user-owned thereafter;
 5. asks for a Bash history policy on first install and preserves that setting on later runs unless you choose to change it;
-6. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
-7. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
-8. moves commands that disappeared from the repo into the backup directory on the next install.
+6. configures a machine-local Git identity in `~/.local/gitconfig` and includes it from the global Git config;
+7. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
+8. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
+9. moves commands that disappeared from the repo into the backup directory on the next install.
 
 The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, `ytdl`, `ports`, `port`, and `freeport` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
 
@@ -181,6 +202,7 @@ A few conveniences intentionally remain shell functions or aliases rather than s
 - `tmpd [name]` — create a temporary directory and immediately enter it.
 - `man` — wraps the system man command with colorized headings and emphasis.
 - `tre` — compact, colorized tree view with hidden files, common dependency directories excluded, and pager output.
+- `pubkey` — copy the preferred SSH public key (`id_ed25519.pub`, then `id_rsa.pub`) to the desktop clipboard using `wl-copy`, `xclip`, or `pbcopy`; if no clipboard command is available, print the key instead.
 
 ## Standalone commands
 
@@ -191,6 +213,7 @@ Current repo-owned programs include:
 - `ytdl` — the standard yt-dlp wrapper.
 - `git check-clean` — show repository status and return nonzero when the working tree has changes.
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
+- `git wtf` — Ruby-based summary of how local and remote branches relate, including ahead/behind state and optional integration/feature branch relationships.
 - `my-commands` — show the generated command reference.
 - `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
 - `server` — serve the current directory in the background with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication and `server --stop` to stop the managed server. It automatically shuts down after the configured idle timeout (30 minutes by default) without an HTTP request. Runtime state uses `XDG_RUNTIME_DIR`; logs use `XDG_STATE_HOME` (`~/.local/state/dotbash-files/logs/server.log` by default).
@@ -222,4 +245,4 @@ for file in bin/*; do
 done
 ```
 
-Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `tree`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.
+Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `ruby`, `tree`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.

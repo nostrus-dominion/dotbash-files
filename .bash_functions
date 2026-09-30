@@ -12,7 +12,7 @@
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact ports 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact ports rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -212,6 +212,42 @@ mkcd() {
     cd -P -- "$1" || return 1
 }
 
+rm() {
+    local recursive=false
+    local force=false
+    local arg
+
+    for arg in "$@"; do
+        case "$arg" in
+        --recursive|-*r*|-*R*)
+            recursive=true
+            ;;
+        esac
+
+        case "$arg" in
+        --force|-*f*)
+            force=true
+            ;;
+        esac
+    done
+
+    if [[ "$recursive" == true && "$force" == true ]]; then
+        echo "WARNING: You are about to recursively force-delete:"
+        printf '  %q' "$@"
+        echo
+
+        local answer
+        read -r -p "Are you sure? [y/N] " answer
+
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            echo "Deletion cancelled."
+            return 1
+        fi
+    fi
+
+    command rm "$@"
+}
+
 # Find files/directories whose names contain the supplied text.
 search() {
     if [[ $# -eq 0 ]]; then
@@ -333,7 +369,7 @@ extract() {
             uncompress -- "$archive"
             ;;
         *)
-            printf "Error: '%s' cannot be extracted by extract().\n" "$archive" >&2
+            printf "Error: '%s' cannot be extracted by this command." "$archive" >&2
             return 1
             ;;
     esac

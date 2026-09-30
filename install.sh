@@ -238,8 +238,14 @@ install_user() {
         mv -- "$prompt_file" "$backup_dir/.bash_prompt"
     fi
 
-    printf "PS1='\\[\\e[%sm\\]\\u\\[\\e[0m\\]@\\[\\e[%sm\\]\\h\\[\\e[0m\\]:\\W\\$ '\n" \
-        "$user_sgr" "$host_sgr" > "$prompt_file"
+    prompt_definition="PS1='\\[\\e[${user_sgr}m\\]\\u\\[\\e[0m\\]@\\[\\e[${host_sgr}m\\]\\h\\[\\e[0m\\]:\\W\\$ '"
+    printf '%s\n' "$prompt_definition" > "$prompt_file"
+
+    if ! bash -n "$prompt_file"; then
+        echo "Error: generated prompt is invalid." >&2
+        exit 1
+    fi
+
     chmod 0644 -- "$prompt_file"
 
     # Retire the old optional-module link/directory from previous installs.

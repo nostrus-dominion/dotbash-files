@@ -37,14 +37,12 @@ done
 mkdir -p -- "$HOME/.local/bin"
 if [[ -d $repo_dir/bin ]]; then
     for source in "$repo_dir"/bin/*; do
-        [[ -f $source && -x $source ]] || continue
+        [[ -f $source ]] || continue
         target="$HOME/.local/bin/$(basename -- "$source")"
-        if [[ -e $target && ! -L $target ]]; then
+        if [[ -e $target || -L $target ]]; then
             mv -- "$target" "$backup_dir/$(basename -- "$target")"
-        else
-            rm -f -- "$target"
         fi
-        ln -s -- "$source" "$target"
+        install -m 0755 -- "$source" "$target"
     done
 fi
 
@@ -54,12 +52,10 @@ if [[ -d $repo_dir/man/man1 ]]; then
     for source in "$repo_dir"/man/man1/*; do
         [[ -f $source ]] || continue
         target="$HOME/.local/share/man/man1/$(basename -- "$source")"
-        if [[ -e $target && ! -L $target ]]; then
+        if [[ -e $target || -L $target ]]; then
             mv -- "$target" "$backup_dir/$(basename -- "$target")"
-        else
-            rm -f -- "$target"
         fi
-        ln -s -- "$source" "$target"
+        install -m 0644 -- "$source" "$target"
     done
 fi
 

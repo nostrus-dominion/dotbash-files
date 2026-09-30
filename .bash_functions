@@ -187,6 +187,15 @@ weather() {
     fi
 }
 
+suod() {
+    read -rp "Did you mean sudo? [y/N] " answer
+
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        sudo "$@"
+    else
+        echo "Well then learn to type dumbass"
+    fi
+}
 
 # ============================================================================
 # Files, directories, and archives

@@ -192,21 +192,40 @@ install_user() {
 
     echo "dotbash-files installer"
 
-    print_color_menu
+    prompt_file="$HOME/.bash_prompt"
+    change_prompt=true
 
-    select_color "Username"
-    user_sgr=$SELECTED_SGR
+    if [[ -e $prompt_file || -L $prompt_file ]]; then
+        echo >/dev/tty
+        printf 'Existing prompt scheme found. Change prompt colors? [y/N] ' >/dev/tty
+        read -r answer </dev/tty || exit 1
 
-    select_color "Hostname"
-    host_sgr=$SELECTED_SGR
+        if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
+            change_prompt=true
+        else
+            change_prompt=false
+            echo 'Keeping existing prompt scheme.' >/dev/tty
+        fi
+    fi
 
-    username=$(id -un)
-    hostname=$(hostname -s)
-    directory=$(basename -- "$PWD")
+    if [[ $change_prompt == true ]]; then
+        print_color_menu
 
-    echo >/dev/tty
-    printf 'Prompt preview: \033[%sm%s\033[0m@\033[%sm%s\033[0m:%s$ command\n' \
-        "$user_sgr" "$username" "$host_sgr" "$hostname" "$directory" >/dev/tty
+        select_color "Username"
+        user_sgr=$SELECTED_SGR
+
+        select_color "Hostname"
+        host_sgr=$SELECTED_SGR
+
+        username=$(id -un)
+        hostname=$(hostname -s)
+        directory=$(basename -- "$PWD")
+
+        echo >/dev/tty
+        printf 'Prompt preview: \033[%sm%s\033[0m@\033[%sm%s\033[0m:%s$ command\n' \
+            "$user_sgr" "$username" "$host_sgr" "$hostname" "$directory" >/dev/tty
+    fi
+
     echo >/dev/tty
     printf 'Continue? [y/N] ' >/dev/tty
     read -r answer </dev/tty || exit 1
@@ -251,21 +270,27 @@ install_user() {
         ln -s -- "${sources[i]}" "$target"
     done
 
-    prompt_file="$HOME/.bash_prompt"
+    if [[ $change_prompt == true ]]; then
+        if [[ -e $prompt_file || -L $prompt_file ]]; then
+            mv -- "$prompt_file" "$backup_dir/.bash_prompt"
+        fi
 
-    if [[ -e $prompt_file || -L $prompt_file ]]; then
-        mv -- "$prompt_file" "$backup_dir/.bash_prompt"
+        prompt_definition="PS1='\\[\\e[${user_sgr}m\\]\\u\\[\\e[0m\\]@\\[\\e[${host_sgr}m\\]\\h\\[\\e[0m\\]:\\W\\$ '"
+        printf '%s\n' "$prompt_definition" > "$prompt_file"
+
+        if ! bash -n "$prompt_file"; then
+            echo "Error: generated prompt is invalid." >&2
+            exit 1
+        fi
+
+        chmod 0644 -- "$prompt_file"
     fi
 
-    prompt_definition="PS1='\\[\\e[${user_sgr}m\\]\\u\\[\\e[0m\\]@\\[\\e[${host_sgr}m\\]\\h\\[\\e[0m\\]:\\W\\$ '"
-    printf '%s\n' "$prompt_definition" > "$prompt_file"
-
-    if ! bash -n "$prompt_file"; then
-        echo "Error: generated prompt is invalid." >&2
-        exit 1
+    # Create the local override file once, then leave it entirely user-owned.
+    if [[ ! -e $HOME/.bash_local && ! -L $HOME/.bash_local ]]; then
+        : > "$HOME/.bash_local"
+        chmod 0600 -- "$HOME/.bash_local"
     fi
-
-    chmod 0644 -- "$prompt_file"
 
     # Retire the old optional-module link/directory from previous installs.
     legacy_functions_dir="$HOME/.bash_functions.d"

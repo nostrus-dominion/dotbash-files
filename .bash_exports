@@ -1,11 +1,20 @@
 # Environment variables shared across interactive Bash sessions.
 
+# Editors
 export EDITOR=vim
 export VISUAL=vim
 export SYSTEMD_EDITOR=vim
+
+# Locale
+export LANG=en_US.UTF-8
+
+# Keep man pages visible after quitting.
+export MANPAGER='less -R -X'
+
+# Node Version Manager
 export NVM_DIR="$HOME/.nvm"
 
-# User-installed commands, including dotbash-files/bin.
+# User commands
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     export PATH="$HOME/.local/bin:$PATH"
 fi

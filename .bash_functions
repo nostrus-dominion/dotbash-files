@@ -71,6 +71,41 @@ ports() {
     ss -tulnp "sport = :$port"
 }
 
+# Show the TCP listener on a port and its owning process when visible.
+port() {
+    if [[ $# -ne 1 || ! $1 =~ ^[0-9]+$ || ${#1} -gt 5 ]]; then
+        echo 'Usage: port <port>' >&2
+        return 2
+    fi
+
+    local port_number=$((10#$1))
+    if (( port_number < 1 || port_number > 65535 )); then
+        echo 'Port must be between 1 and 65535.' >&2
+        return 2
+    fi
+
+    command -v ss >/dev/null 2>&1 || {
+        echo 'Error: ss is not installed or not in PATH.' >&2
+        return 1
+    }
+
+    local listener
+    listener=$(ss -H -ltnp "sport = :$port_number" 2>/dev/null)
+
+    if [[ -z $listener ]]; then
+        printf 'Nothing is listening on TCP port %d.\n' "$port_number"
+        return 1
+    fi
+
+    ss -ltnp "sport = :$port_number"
+
+    if [[ $listener != *'users:('* && $EUID -ne 0 ]]; then
+        echo
+        echo 'Process details are hidden from this user.'
+        printf "Try: sudo ss -ltnp 'sport = :%d'\n" "$port_number"
+    fi
+}
+
 # Show local IPv4 addresses and the public IPv4 address.
 myip() {
     (( $# == 0 )) || { echo 'Usage: myip' >&2; return 2; }
@@ -440,7 +475,13 @@ freeport() {
     pids=$(lsof -t -i :"$port" 2>/dev/null | sort -u)
 
     if [[ -z "$pids" ]]; then
-        echo "No process found using port $port."
+        if ss -H -ltn "sport = :$port" 2>/dev/null | grep -q .; then
+            printf 'TCP port %s is in use, but the owning process is hidden from this user.\n' "$port" >&2
+            printf "Inspect it with: sudo ss -ltnp 'sport = :%s'\n" "$port" >&2
+            return 1
+        fi
+
+        echo "Port $port is already free."
         return 0
     fi
 

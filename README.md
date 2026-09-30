@@ -7,6 +7,7 @@ The repository separates environment, shell behavior, shell-local helpers, and s
 ```text
 dotbash-files/
 ├── bin/
+│   ├── battery
 │   ├── getcerts
 │   ├── comfy
 │   ├── digga
@@ -49,6 +50,18 @@ user@host:dir$ command
 Only the username and hostname are colored. The separator, current directory, dollar sign, trailing space, and command text use the terminal's normal color.
 
 The installer includes named ANSI colors plus a custom ANSI-256 option.
+
+## Bash history
+
+The installer stores the selected history policy in `${XDG_CONFIG_HOME:-~/.config}/dotbash-files/history`. Existing settings are preserved on later installer runs unless you explicitly choose to change them.
+
+Accepted values:
+
+- `-1` — keep history only for the current shell session and discard it on exit.
+- `0` — do not keep command history.
+- `100` through `32768` — persist exactly that many commands.
+
+The default for a new install is `1000`.
 
 ## Environment and NVM
 
@@ -132,9 +145,10 @@ It:
 2. links `.bashrc`, `.bash_common`, `.bash_exports`, `.bash_aliases`, and `.bash_functions` back to this repository;
 3. preserves an existing `~/.bash_prompt` unless you explicitly choose to change its colors; otherwise it generates the prompt;
 4. creates `~/.bash_local` once if it is missing and leaves it user-owned thereafter;
-5. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
-6. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
-7. moves commands that disappeared from the repo into the backup directory on the next install.
+5. asks for a Bash history policy on first install and preserves that setting on later runs unless you choose to change it;
+6. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
+7. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
+8. moves commands that disappeared from the repo into the backup directory on the next install.
 
 The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, `ytdl`, `ports`, `port`, and `freeport` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
 
@@ -172,13 +186,14 @@ A few conveniences intentionally remain shell functions or aliases rather than s
 
 Current repo-owned programs include:
 
+- `battery` — show a compact battery/AC indicator on macOS and Linux; prints nothing when no battery is present.
 - `comfy` — manage the ComfyUI systemd service; `comfy --backup` creates the rebuild backup.
 - `ytdl` — the standard yt-dlp wrapper.
 - `git check-clean` — show repository status and return nonzero when the working tree has changes.
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
 - `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
-- `server` — serve the current directory in the background with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication, `server --stop` to stop the managed server, and expect automatic shutdown after 30 minutes without an HTTP request.
+- `server` — serve the current directory in the background with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication and `server --stop` to stop the managed server. It automatically shuts down after the configured idle timeout (30 minutes by default) without an HTTP request.
 - `getcerts` — inspect a host's TLS certificate, SANs, issuer, fingerprint, validity, and days until expiration.
 - `digga` — concise DNS lookup wrapper around `dig`.
 - `repo` — open the current Git repository, subdirectory, or file in its remote web interface.

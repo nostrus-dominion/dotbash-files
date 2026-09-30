@@ -7,7 +7,7 @@ The repository separates environment, shell behavior, shell-local helpers, and s
 ```text
 dotbash-files/
 ├── bin/
-│   ├── cert
+│   ├── getcerts
 │   ├── comfy
 │   ├── digga
 │   ├── git-check-clean
@@ -160,6 +160,14 @@ export PS1='...'
 
 Running the root installer again replaces that managed block instead of appending duplicates. The previous `/root/.bashrc` is backed up first.
 
+## Shell helpers
+
+A few conveniences intentionally remain shell functions or aliases rather than standalone commands:
+
+- `tmpd [name]` — create a temporary directory and immediately enter it.
+- `man` — wraps the system man command with colorized headings and emphasis.
+- `tre` — compact, colorized tree view with hidden files, common dependency directories excluded, and pager output.
+
 ## Standalone commands
 
 Current repo-owned programs include:
@@ -170,8 +178,8 @@ Current repo-owned programs include:
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
 - `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
-- `server` — serve the current directory over HTTP; `server --secure` generates temporary Basic Auth credentials.
-- `cert` — inspect a host's TLS certificate, SANs, validity, and days until expiration.
+- `server` — serve the current directory with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication.
+- `getcerts` — inspect a host's TLS certificate, SANs, issuer, fingerprint, validity, and days until expiration.
 - `digga` — concise DNS lookup wrapper around `dig`.
 - `repo` — open the current Git repository, subdirectory, or file in its remote web interface.
 

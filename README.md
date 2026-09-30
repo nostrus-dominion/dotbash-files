@@ -16,6 +16,7 @@ dotbash-files/
 │   ├── ports
 │   ├── repo
 │   ├── server
+│   ├── test.sh
 │   └── ytdl
 ├── .bashrc
 ├── .bash_common
@@ -23,8 +24,6 @@ dotbash-files/
 ├── .bash_aliases
 ├── .bash_functions
 ├── install.sh
-├── test.sh
-├── Makefile
 └── README.md
 ```
 
@@ -41,7 +40,7 @@ If a command does not need to modify the current Bash process, it should normall
 
 ## Prompt
 
-Normal-user installs generate `~/.bash_prompt`. The installer asks for separate username and hostname colors and keeps the prompt layout fixed:
+Normal-user installs generate `~/.bash_prompt`. On first install, the installer asks for separate username and hostname colors. On later runs, an existing prompt scheme is preserved by default; the color menu is shown only when you explicitly choose to change it. The prompt layout stays fixed:
 
 ```text
 user@host:dir$ command
@@ -76,7 +75,7 @@ Machines without NVM simply skip those files.
 
 ## Local overrides
 
-`~/.bash_local` is an optional user-owned file for machine-specific, private, or experimental configuration. The installer never creates, links, backs up, or overwrites it.
+`~/.bash_local` is a user-owned file for machine-specific, private, or experimental configuration. The installer creates an empty `~/.bash_local` with mode `0600` if it does not exist, then never overwrites, links, or replaces it.
 
 Examples:
 
@@ -131,10 +130,11 @@ It:
 
 1. backs up existing Bash files into a timestamped `~/.bash-backup-*` directory;
 2. links `.bashrc`, `.bash_common`, `.bash_exports`, `.bash_aliases`, and `.bash_functions` back to this repository;
-3. generates `~/.bash_prompt`;
-4. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
-5. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
-6. moves commands that disappeared from the repo into the backup directory on the next install.
+3. preserves an existing `~/.bash_prompt` unless you explicitly choose to change its colors; otherwise it generates the prompt;
+4. creates `~/.bash_local` once if it is missing and leaves it user-owned thereafter;
+5. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
+6. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
+7. moves commands that disappeared from the repo into the backup directory on the next install.
 
 The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, `ytdl`, `ports`, `port`, and `freeport` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
 
@@ -178,7 +178,7 @@ Current repo-owned programs include:
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
 - `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
-- `server` — serve the current directory with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication.
+- `server` — serve the current directory in the background with generated Basic Auth credentials by default; use `server --unsecure` to disable authentication, `server --stop` to stop the managed server, and expect automatic shutdown after 30 minutes without an HTTP request.
 - `getcerts` — inspect a host's TLS certificate, SANs, issuer, fingerprint, validity, and days until expiration.
 - `digga` — concise DNS lookup wrapper around `dig`.
 - `repo` — open the current Git repository, subdirectory, or file in its remote web interface.
@@ -190,10 +190,10 @@ Git discovers executables named `git-<name>` on PATH, which is why `git-check-cl
 Run:
 
 ```bash
-make test
+bin/test.sh
 ```
 
-The test target syntax-checks the shared Bash files and every command in `bin/`, verifies command metadata, and runs ShellCheck when it is installed.
+The test command syntax-checks the shared Bash files and every command in `bin/`, verifies command metadata, and runs ShellCheck when it is installed.
 
 ## Validation
 

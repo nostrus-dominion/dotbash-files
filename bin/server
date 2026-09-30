@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# description: Serve the current directory over HTTP with generated Basic Auth by default.
-# usage: server [--unsecure] [port]
+# description: Serve the current directory in the background with Basic Auth by default.
+# usage: server [--unsecure] [port] | server --stop
 
 set -u
+
+idle_timeout=1800
+
+runtime_base=${XDG_RUNTIME_DIR:-"$HOME/.cache"}
+state_dir="$runtime_base/dotbash-files"
+pid_file="$state_dir/server.pid"
+log_file="$state_dir/server.log"
 
 usage() {
     cat <<'EOF'
@@ -10,12 +17,16 @@ Usage:
   server [port]
   server -u [port]
   server --unsecure [port]
+  server --stop
   server -h, --help
 
 The default port is 8000.
 
 By default, server generates temporary credentials and requires HTTP Basic
 Authentication. Use --unsecure to serve without authentication.
+
+The server detaches from the terminal and automatically stops after 30 minutes
+without an HTTP request. Use 'server --stop' to stop it manually.
 
 Basic Auth protects against casual access, but plain HTTP is not encrypted.
 EOF
@@ -29,7 +40,59 @@ open_browser() {
             sleep 1
             xdg-open "$url" >/dev/null 2>&1
         ) &
+        disown 2>/dev/null || :
     fi
+}
+
+managed_pid() {
+    [[ -r $pid_file ]] || return 1
+
+    local pid
+    read -r pid < "$pid_file" || return 1
+    [[ $pid =~ ^[0-9]+$ ]] || return 1
+
+    if kill -0 "$pid" 2>/dev/null; then
+        printf '%s\n' "$pid"
+        return 0
+    fi
+
+    rm -f -- "$pid_file"
+    return 1
+}
+
+stop_server() {
+    mkdir -p -- "$state_dir"
+
+    local pid
+    if ! pid=$(managed_pid); then
+        echo 'No dotbash server is running.'
+        return 0
+    fi
+
+    printf 'Stopping server PID %s...\n' "$pid"
+    kill -TERM "$pid" 2>/dev/null || {
+        printf 'Error: could not stop PID %s.\n' "$pid" >&2
+        return 1
+    }
+
+    local attempt
+    for attempt in {1..30}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f -- "$pid_file"
+            echo 'Server stopped.'
+            return 0
+        fi
+        sleep 0.1
+    done
+
+    printf 'PID %s did not stop after TERM; sending KILL...\n' "$pid"
+    kill -KILL "$pid" 2>/dev/null || {
+        printf 'Error: could not kill PID %s.\n' "$pid" >&2
+        return 1
+    }
+
+    rm -f -- "$pid_file"
+    echo 'Server stopped.'
 }
 
 secure=true
@@ -43,6 +106,14 @@ case "${1:-}" in
         }
         usage
         exit 0
+        ;;
+    --stop)
+        (( $# == 1 )) || {
+            usage >&2
+            exit 2
+        }
+        stop_server
+        exit $?
         ;;
     -u|--unsecure)
         secure=false
@@ -71,49 +142,69 @@ command -v python3 >/dev/null 2>&1 || {
     exit 1
 }
 
+mkdir -p -- "$state_dir"
+
+if existing_pid=$(managed_pid); then
+    printf 'A dotbash server is already running as PID %s.\n' "$existing_pid" >&2
+    echo "Stop it first with: server --stop" >&2
+    exit 1
+fi
+
 url="http://localhost:$port"
+username=''
+password=''
 
-if [[ $secure == false ]]; then
-    printf 'Serving %s at %s WITHOUT authentication.\n' "$PWD" "$url"
-    echo 'Press Ctrl-C to stop.'
-    echo
-    open_browser "$url"
-    exec python3 -m http.server "$port"
+if [[ $secure == true ]]; then
+    username='user'
+
+    if command -v openssl >/dev/null 2>&1; then
+        password=$(openssl rand -base64 18 | tr -d '\n')
+    else
+        password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
+    fi
 fi
 
-username='user'
+: > "$log_file"
 
-if command -v openssl >/dev/null 2>&1; then
-    password=$(openssl rand -base64 18 | tr -d '\n')
-else
-    password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
-fi
-
-printf 'Serving %s at %s\n' "$PWD" "$url"
-echo
-printf 'Username: %s\n' "$username"
-printf 'Password: %s\n' "$password"
-echo
-echo 'NOTE: Authentication is enabled, but plain HTTP does not encrypt traffic.'
-echo 'Press Ctrl-C to stop.'
-echo
-
-open_browser "$url"
-
-SERVER_USER=$username SERVER_PASSWORD=$password SERVER_PORT=$port python3 - <<'PY'
+SERVER_SECURE=$secure \
+SERVER_USER=$username \
+SERVER_PASSWORD=$password \
+SERVER_PORT=$port \
+SERVER_IDLE_TIMEOUT=$idle_timeout \
+SERVER_PID_FILE=$pid_file \
+python3 - >>"$log_file" 2>&1 <<'PY' &
 import base64
 import os
+import signal
+import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
+secure = os.environ["SERVER_SECURE"].lower() == "true"
 user = os.environ["SERVER_USER"]
 password = os.environ["SERVER_PASSWORD"]
 port = int(os.environ["SERVER_PORT"])
-expected = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+idle_timeout = int(os.environ["SERVER_IDLE_TIMEOUT"])
+pid_file = os.environ["SERVER_PID_FILE"]
+expected = (
+    "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+    if secure
+    else ""
+)
 
 
-class AuthHandler(SimpleHTTPRequestHandler):
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def handle_one_request(self):
+        self.server.last_activity = time.monotonic()
+        super().handle_one_request()
+
     def _authorized(self):
-        if self.headers.get("Authorization") == expected:
+        if not secure or self.headers.get("Authorization") == expected:
             return True
 
         self.send_response(401)
@@ -132,5 +223,68 @@ class AuthHandler(SimpleHTTPRequestHandler):
             super().do_HEAD()
 
 
-ThreadingHTTPServer(("0.0.0.0", port), AuthHandler).serve_forever()
+httpd = Server(("0.0.0.0", port), Handler)
+httpd.last_activity = time.monotonic()
+
+
+def idle_watchdog():
+    while True:
+        time.sleep(5)
+        if time.monotonic() - httpd.last_activity >= idle_timeout:
+            httpd.shutdown()
+            return
+
+
+def stop_handler(_signum, _frame):
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGTERM, stop_handler)
+signal.signal(signal.SIGINT, stop_handler)
+threading.Thread(target=idle_watchdog, daemon=True).start()
+
+try:
+    httpd.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    httpd.server_close()
+
+    try:
+        with open(pid_file, "r", encoding="utf-8") as handle:
+            recorded_pid = handle.read().strip()
+        if recorded_pid == str(os.getpid()):
+            os.unlink(pid_file)
+    except (FileNotFoundError, OSError):
+        pass
 PY
+
+server_pid=$!
+printf '%s\n' "$server_pid" > "$pid_file"
+disown "$server_pid" 2>/dev/null || :
+
+sleep 0.2
+if ! kill -0 "$server_pid" 2>/dev/null; then
+    rm -f -- "$pid_file"
+    echo 'Error: server failed to start.' >&2
+    [[ ! -s $log_file ]] || tail -n 20 "$log_file" >&2
+    exit 1
+fi
+
+if [[ $secure == true ]]; then
+    printf 'Serving %s at %s\n' "$PWD" "$url"
+    echo
+    printf 'Username: %s\n' "$username"
+    printf 'Password: %s\n' "$password"
+    echo
+    echo 'NOTE: Authentication is enabled, but plain HTTP does not encrypt traffic.'
+else
+    printf 'Serving %s at %s WITHOUT authentication.\n' "$PWD" "$url"
+fi
+
+printf 'PID: %s\n' "$server_pid"
+printf 'Log: %s\n' "$log_file"
+echo 'Idle timeout: 30 minutes'
+echo 'Stop with: server --stop'
+
+open_browser "$url"

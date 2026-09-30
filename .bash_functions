@@ -3,9 +3,8 @@
 # Personal Bash utility functions.
 #
 # Optional dependencies used by individual functions:
-#   bc, curl, ffmpeg, git, jq, lsof, lynx, pygmentize, rsync, 7z
+#   bc, curl, jq, lsof, lynx, pygmentize, rsync, 7z
 #   tar, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
-#   yt-dlp (see .bash_functions.d/ytdl.bash)
 #
 # File managers supported by open():
 #   dolphin, nautilus, thunar, pcmanfm
@@ -39,10 +38,15 @@ default-interface() {
     printf '%s\n' "$interface"
 }
 
+# Run dnstop on the default IPv4 interface unless one is specified.
 dnstop() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command dnstop -l 5 "$interface"; }
+# Show ethtool information for the default IPv4 interface unless one is specified.
 ethtool() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command ethtool "$interface"; }
+# Run iftop on the default IPv4 interface unless one is specified.
 iftop() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command iftop -i "$interface"; }
+# Capture packets on the default IPv4 interface unless one is specified.
 tcpdump() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command tcpdump -i "$interface"; }
+# Show vnStat data for the default IPv4 interface unless one is specified.
 vnstat() { local interface="${1:-$(default-interface)}"; [[ -n "$interface" ]] && command vnstat -i "$interface"; }
 
 # Show listening TCP/UDP sockets, optionally restricted to a local port.
@@ -161,6 +165,7 @@ weather() {
     fi
 }
 
+# Catch a mistyped sudo and offer to run the intended command.
 suod() {
     read -rp "Did you mean sudo? [y/N] " answer
 
@@ -186,6 +191,7 @@ mkcd() {
     cd -P -- "$1" || return 1
 }
 
+# Protect recursive force-deletes with an explicit confirmation.
 rm() {
     local recursive=false
     local force=false
@@ -614,7 +620,7 @@ up() {
 }
 
 # ============================================================================
-# Services
+# Python environments
 # ============================================================================
 
 # Create and activate a Python virtual environment in this shell.
@@ -667,12 +673,3 @@ pyact() {
             ;;
     esac
 }
-
-
-# Optional machine-specific commands. Install this directory beside this file.
-for _bash_functions_module in "$HOME"/.bash_functions.d/*.bash; do
-    [[ -f "$_bash_functions_module" ]] || continue
-    # shellcheck source=/dev/null
-    source "$_bash_functions_module"
-done
-unset _bash_functions_module

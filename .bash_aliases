@@ -35,6 +35,8 @@ alias pipup='pip install --upgrade pip'
 alias pyenv='python -m venv ./venv'
 
 # custom commands
+# Copy the preferred SSH public key to the desktop clipboard.
+alias pubkey='f="$HOME/.ssh/id_ed25519.pub"; [[ -f "$f" ]] || f="$HOME/.ssh/id_rsa.pub"; if [[ ! -f "$f" ]]; then echo "No id_ed25519.pub or id_rsa.pub found in ~/.ssh." >&2; false; elif command -v wl-copy >/dev/null 2>&1; then wl-copy < "$f" && echo "=> Public key copied to clipboard."; elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard < "$f" && echo "=> Public key copied to clipboard."; elif command -v pbcopy >/dev/null 2>&1; then pbcopy < "$f" && echo "=> Public key copied to clipboard."; else echo "No supported clipboard command found (wl-copy, xclip, or pbcopy)." >&2; cat "$f"; fi; unset f'
 alias rebash="source $HOME/.bashrc && echo Bash config reloaded"
 alias cls='clear'
 alias apt-full-upgrade='sudo apt-get update && sudo apt-get upgrade && sudo apt-get dist-upgrade && sudo apt autoclean && sudo apt autoremove'

@@ -7,11 +7,15 @@ The repository separates environment, shell behavior, shell-local helpers, and s
 ```text
 dotbash-files/
 ├── bin/
+│   ├── cert
 │   ├── comfy
+│   ├── digga
 │   ├── git-check-clean
 │   ├── git-reset-repo
 │   ├── my-commands
 │   ├── ports
+│   ├── repo
+│   ├── server
 │   └── ytdl
 ├── .bashrc
 ├── .bash_common
@@ -19,6 +23,8 @@ dotbash-files/
 ├── .bash_aliases
 ├── .bash_functions
 ├── install.sh
+├── test.sh
+├── Makefile
 └── README.md
 ```
 
@@ -26,7 +32,7 @@ dotbash-files/
 
 - `.bashrc` — generic interactive entry point.
 - `.bash_exports` — exported environment variables and PATH setup.
-- `.bash_common` — history, colors, completion, NVM initialization, and loading shared Bash files.
+- `.bash_common` — history, colors, completion, NVM initialization, loading shared Bash files, and finally optional `~/.bash_local` overrides.
 - `.bash_aliases` — simple command substitutions.
 - `.bash_functions` — commands that must affect the current shell, such as changing directory, activating a virtual environment, or reading Bash history.
 - `bin/` — standalone programs installed into `~/.local/bin`.
@@ -66,6 +72,21 @@ fi
 ```
 
 Machines without NVM simply skip those files.
+
+
+## Local overrides
+
+`~/.bash_local` is an optional user-owned file for machine-specific, private, or experimental configuration. The installer never creates, links, backs up, or overwrites it.
+
+Examples:
+
+```bash
+export SOME_PRIVATE_VAR="..."
+alias media='ssh media-server'
+export PATH="$HOME/special-tools/bin:$PATH"
+```
+
+Because it is sourced last by `.bash_common`, local settings can intentionally override the shared configuration.
 
 ## Command reference
 
@@ -111,7 +132,7 @@ It:
 1. backs up existing Bash files into a timestamped `~/.bash-backup-*` directory;
 2. links `.bashrc`, `.bash_common`, `.bash_exports`, `.bash_aliases`, and `.bash_functions` back to this repository;
 3. generates `~/.bash_prompt`;
-4. copies repo-owned `bin/` commands into `~/.local/bin`;
+4. symlinks repo-owned `bin/` commands into `~/.local/bin`, so a `git pull` updates them immediately;
 5. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
 6. moves commands that disappeared from the repo into the backup directory on the next install.
 
@@ -148,9 +169,23 @@ Current repo-owned programs include:
 - `git check-clean` — show repository status and return nonzero when the working tree has changes.
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
-- `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; it requests sudo authentication only when another user's process requires elevated inspection or termination.
+- `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; the script stays unprivileged and requests sudo only for the exact inspection/termination operation that needs it.
+- `server` — serve the current directory over HTTP; `server --secure` generates temporary Basic Auth credentials.
+- `cert` — inspect a host's TLS certificate, SANs, validity, and days until expiration.
+- `digga` — concise DNS lookup wrapper around `dig`.
+- `repo` — open the current Git repository, subdirectory, or file in its remote web interface.
 
 Git discovers executables named `git-<name>` on PATH, which is why `git-check-clean` is invoked as `git check-clean`.
+
+## Testing
+
+Run:
+
+```bash
+make test
+```
+
+The test target syntax-checks the shared Bash files and every command in `bin/`, verifies command metadata, and runs ShellCheck when it is installed.
 
 ## Validation
 
@@ -164,4 +199,4 @@ for file in bin/*; do
 done
 ```
 
-Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.
+Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `dig`, `openssl`, `python3`, `tree`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.

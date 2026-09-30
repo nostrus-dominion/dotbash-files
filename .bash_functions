@@ -4,14 +4,14 @@
 #
 # Optional dependencies used by individual functions:
 #   bc, curl, jq, lynx, pygmentize, rsync, 7z
-#   tar, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
+#   tar, pigz, unzip, bzip2, gzip, unrar, xz-utils, ImageMagick
 #
 # File managers supported by open():
 #   dolphin, nautilus, thunar, pcmanfm
 
 # An existing interactive shell may still have aliases from an older config.
 # Remove names that are functions below before Bash parses their definitions.
-unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man rm 2>/dev/null || :
+unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man zipit store targz rm 2>/dev/null || :
 
 
 # ============================================================================
@@ -234,30 +234,31 @@ search() {
     find . -name "*$*"
 }
 
-# Stores all files, directories, and subdirectories into an uncompressed zip file.
-store() {
-    if ! command -v 7z &>/dev/null; then
+# Bundle the current directory into a fast, uncompressed ZIP archive.
+# With a date expression, include only entries modified on or before that cutoff.
+zipit() {
+    if ! command -v 7z >/dev/null 2>&1; then
         echo "Error: 7z is not installed or not in PATH." >&2
         return 1
     fi
 
-    local archive="store.zip"
+    local archive="zipit.zip"
     local cutoff
 
-    if [[ -e "$archive" ]]; then
-        echo "Error: '$archive' already exists."
-        echo "Remove it first if you want to create a new archive."
+    if [[ -e $archive ]]; then
+        printf "Error: '%s' already exists.\n" "$archive" >&2
+        echo "Remove it first if you want to create a new archive." >&2
         return 1
     fi
 
-    # No argument: store everything.
-    if [[ $# -eq 0 ]]; then
+    # No argument: bundle everything in the current directory.
+    if (( $# == 0 )); then
         shopt -s dotglob nullglob
         local files=(*)
         shopt -u dotglob nullglob
 
-        if [[ ${#files[@]} -eq 0 ]]; then
-            echo "Nothing to store."
+        if (( ${#files[@]} == 0 )); then
+            echo "Nothing to zip."
             return 1
         fi
 
@@ -267,36 +268,146 @@ store() {
 
     # Convert the supplied date expression into a timestamp.
     if ! cutoff=$(date -d "$*" '+%Y-%m-%d %H:%M:%S' 2>/dev/null); then
-        echo "Error: invalid date/time expression: $*" >&2
+        printf 'Error: invalid date/time expression: %s\n' "$*" >&2
         return 1
     fi
 
-    # Find everything modified ON or BEFORE the cutoff.
-    #
-    # We use a temporary file because 7z's @list-file syntax lets it
-    # preserve the complete relative path for every item.
-    local listFile
-    listFile=$(mktemp) || {
+    local list_file
+    list_file=$(mktemp) || {
         echo "Error: unable to create temporary file." >&2
         return 1
     }
 
-
     find . -mindepth 1 -not -newermt "$cutoff" -print0 |
         while IFS= read -r -d '' file; do
             printf '%s\n' "${file#./}"
-        done > "$listFile"
+        done > "$list_file"
 
-    if [[ ! -s "$listFile" ]]; then
-        echo "Nothing to store before: $cutoff"
-        command rm -f -- "$listFile"
+    if [[ ! -s $list_file ]]; then
+        printf 'Nothing to zip on or before: %s\n' "$cutoff"
+        command rm -f -- "$list_file"
         return 1
     fi
 
-    7z a -tzip -mx=0 "$archive" @"$listFile"
+    7z a -tzip -mx=0 "$archive" @"$list_file"
     local result=$?
-    command rm -f -- "$listFile"
+    command rm -f -- "$list_file"
     return "$result"
+}
+
+# Preserve the current Unix filesystem tree in an uncompressed TAR archive.
+# With a date expression, include only entries modified on or before that cutoff.
+store() {
+    if ! command -v tar >/dev/null 2>&1; then
+        echo "Error: tar is not installed or not in PATH." >&2
+        return 1
+    fi
+
+    local archive="store.tar"
+    local cutoff
+    local list_file
+    local result
+
+    if [[ -e $archive ]]; then
+        printf "Error: '%s' already exists.\n" "$archive" >&2
+        echo "Remove it first if you want to create a new archive." >&2
+        return 1
+    fi
+
+    # No argument: capture the current directory tree as-is.
+    if (( $# == 0 )); then
+        shopt -s dotglob nullglob
+        local files=(*)
+        shopt -u dotglob nullglob
+
+        if (( ${#files[@]} == 0 )); then
+            echo "Nothing to store."
+            return 1
+        fi
+
+        tar -cf "$archive" -- "${files[@]}"
+        return $?
+    fi
+
+    if ! cutoff=$(date -d "$*" '+%Y-%m-%d %H:%M:%S' 2>/dev/null); then
+        printf 'Error: invalid date/time expression: %s\n' "$*" >&2
+        return 1
+    fi
+
+    # Build the list before creating store.tar so the archive never includes itself.
+    # NUL-delimited names plus --no-recursion preserve unusual filenames and keep
+    # the date filter exact instead of recursively pulling in newer descendants.
+    list_file=$(mktemp) || {
+        echo "Error: unable to create temporary file." >&2
+        return 1
+    }
+
+    find . -mindepth 1 -not -newermt "$cutoff" -print0 > "$list_file"
+
+    if [[ ! -s $list_file ]]; then
+        printf 'Nothing to store on or before: %s\n' "$cutoff"
+        command rm -f -- "$list_file"
+        return 1
+    fi
+
+    tar -cf "$archive" --null --no-recursion --files-from="$list_file"
+    result=$?
+    command rm -f -- "$list_file"
+
+    if (( result != 0 )); then
+        command rm -f -- "$archive"
+    fi
+
+    return "$result"
+}
+
+# Create a compressed, portable .tar.gz archive of a file or directory.
+# Uses pigz when available for multicore compression, otherwise gzip.
+targz() {
+    if (( $# != 1 )); then
+        echo 'Usage: targz <file-or-directory>' >&2
+        return 2
+    fi
+
+    if ! command -v tar >/dev/null 2>&1; then
+        echo "Error: tar is not installed or not in PATH." >&2
+        return 1
+    fi
+
+    local input=${1%/}
+    local archive="${input}.tar.gz"
+    local compressor
+    local pipeline_status
+
+    if [[ ! -e $input && ! -L $input ]]; then
+        printf "Error: '%s' does not exist.\n" "$input" >&2
+        return 1
+    fi
+
+    if [[ -e $archive ]]; then
+        printf "Error: '%s' already exists.\n" "$archive" >&2
+        return 1
+    fi
+
+    if command -v pigz >/dev/null 2>&1; then
+        compressor=pigz
+    else
+        compressor=gzip
+    fi
+
+    printf 'Compressing with %s: %s -> %s\n' "$compressor" "$input" "$archive"
+
+    tar -cf - --exclude='.DS_Store' --exclude='*/.DS_Store' -- "$input" |
+        "$compressor" > "$archive"
+    pipeline_status=("${PIPESTATUS[@]}")
+
+    if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )); then
+        command rm -f -- "$archive"
+        echo 'Archive creation failed.' >&2
+        return 1
+    fi
+
+    printf '%s created successfully.\n' "$archive"
 }
 
 # Extract a supported archive into the current directory.

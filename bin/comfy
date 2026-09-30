@@ -462,9 +462,9 @@ EOF
         cp "$HOME/.bash_functions" \
             "$STAGE/shell/bash_functions"
     fi
-    if [[ -d "$HOME/.bash_functions.d" ]]; then
-        mkdir -p "$STAGE/shell/bash_functions.d"
-        cp -a "$HOME/.bash_functions.d/." "$STAGE/shell/bash_functions.d/"
+    if [[ -x "$HOME/.local/bin/comfy" ]]; then
+        mkdir -p "$STAGE/shell"
+        cp "$HOME/.local/bin/comfy" "$STAGE/shell/comfy"
     fi
 
     # ------------------------------------------------------------
@@ -518,6 +518,7 @@ Contents:
 
   shell/
       bash_functions
+      comfy
 
 ============================================================
 BASIC RESTORE

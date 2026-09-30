@@ -176,6 +176,100 @@ select_color() {
     done
 }
 
+setup_gitconfig() {
+    command -v git >/dev/null 2>&1 || {
+        echo 'Git is not installed; skipping local Git identity setup.'
+        return 0
+    }
+
+    local local_config="$HOME/.local/gitconfig"
+    local git_authorname=''
+    local git_authoremail=''
+    local git_credential='cache'
+    local current_name=''
+    local current_email=''
+    local answer=''
+    local tmp=''
+    local include_found=false
+    local include_path=''
+
+    mkdir -p -- "$HOME/.local"
+
+    if [[ "$(uname -s)" == Darwin ]]; then
+        git_credential='osxkeychain'
+    fi
+
+    if [[ -r $local_config ]]; then
+        current_name=$(git config --file "$local_config" --get user.name 2>/dev/null || :)
+        current_email=$(git config --file "$local_config" --get user.email 2>/dev/null || :)
+
+        echo >/dev/tty
+        if [[ -n $current_name || -n $current_email ]]; then
+            printf 'Existing local Git identity: %s <%s>. Change it? [y/N] ' \
+                "${current_name:-unknown}" "${current_email:-unknown}" >/dev/tty
+        else
+            printf 'Existing ~/.local/gitconfig found. Reconfigure Git identity? [y/N] ' >/dev/tty
+        fi
+
+        read -r answer </dev/tty || return 1
+        if [[ $answer != [yY] && $answer != [yY][eE][sS] ]]; then
+            echo 'Keeping existing local Git config.' >/dev/tty
+        else
+            current_name=''
+            current_email=''
+        fi
+    fi
+
+    if [[ ! -r $local_config || -z $current_name || -z $current_email ]]; then
+        [[ -n $current_name ]] || current_name=$(git config --global --get user.name 2>/dev/null || :)
+        [[ -n $current_email ]] || current_email=$(git config --global --get user.email 2>/dev/null || :)
+
+        echo >/dev/tty
+
+        while [[ -z $git_authorname ]]; do
+            if [[ -n $current_name ]]; then
+                printf 'Git author name [%s]: ' "$current_name" >/dev/tty
+            else
+                printf 'Git author name: ' >/dev/tty
+            fi
+            read -r git_authorname </dev/tty || return 1
+            git_authorname=${git_authorname:-$current_name}
+        done
+
+        while [[ -z $git_authoremail ]]; do
+            if [[ -n $current_email ]]; then
+                printf 'Git author email [%s]: ' "$current_email" >/dev/tty
+            else
+                printf 'Git author email: ' >/dev/tty
+            fi
+            read -r git_authoremail </dev/tty || return 1
+            git_authoremail=${git_authoremail:-$current_email}
+        done
+
+        tmp=$(mktemp) || return 1
+        git config --file "$tmp" user.name "$git_authorname"
+        git config --file "$tmp" user.email "$git_authoremail"
+        git config --file "$tmp" credential.helper "$git_credential"
+
+        mv -- "$tmp" "$local_config"
+        chmod 0600 -- "$local_config"
+
+        printf 'Wrote local Git config: %s\n' "$local_config"
+    fi
+
+    while IFS= read -r include_path; do
+        if [[ $include_path == "$local_config" || $include_path == "~/.local/gitconfig" ]]; then
+            include_found=true
+            break
+        fi
+    done < <(git config --global --get-all include.path 2>/dev/null || :)
+
+    if [[ $include_found == false ]]; then
+        git config --global --add include.path "$local_config"
+        printf 'Added Git include: %s\n' "$local_config"
+    fi
+}
+
 install_user() {
     local user_sgr
     local host_sgr
@@ -367,6 +461,8 @@ install_user() {
         printf '%s\n' "$history_choice" > "$history_config_file"
         chmod 0600 -- "$history_config_file"
     fi
+
+    setup_gitconfig || exit 1
 
     # Retire the old optional-module link/directory from previous installs.
     legacy_functions_dir="$HOME/.bash_functions.d"

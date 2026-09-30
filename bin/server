@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# description: Serve the current directory over HTTP, optionally with generated Basic Auth.
+# usage: server [--secure] [port]
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage:
+  server [port]
+  server --secure [port]
+  server -h, --help
+
+The default port is 8000.
+
+--secure generates a random username/password prompt using HTTP Basic Auth.
+This protects against casual access, but HTTP itself is not encrypted.
+EOF
+}
+
+open_browser() {
+    local url=$1
+
+    if command -v xdg-open >/dev/null 2>&1 && [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]]; then
+        (
+            sleep 1
+            xdg-open "$url" >/dev/null 2>&1
+        ) &
+    fi
+}
+
+secure=false
+port=8000
+
+case "${1:-}" in
+    -h|--help)
+        (( $# == 1 )) || {
+            usage >&2
+            exit 2
+        }
+        usage
+        exit 0
+        ;;
+    --secure)
+        secure=true
+        shift
+        ;;
+esac
+
+if (( $# > 1 )); then
+    usage >&2
+    exit 2
+fi
+
+if (( $# == 1 )); then
+    port=$1
+fi
+
+if [[ ! $port =~ ^[0-9]+$ || ${#port} -gt 5 ]] || (( 10#$port < 1 || 10#$port > 65535 )); then
+    echo 'Port must be between 1 and 65535.' >&2
+    exit 2
+fi
+
+port=$((10#$port))
+
+command -v python3 >/dev/null 2>&1 || {
+    echo 'Error: python3 is required.' >&2
+    exit 1
+}
+
+url="http://localhost:$port"
+
+if [[ $secure == false ]]; then
+    printf 'Serving %s at %s\n' "$PWD" "$url"
+    echo 'Press Ctrl-C to stop.'
+    echo
+    open_browser "$url"
+    exec python3 -m http.server "$port"
+fi
+
+username='user'
+
+if command -v openssl >/dev/null 2>&1; then
+    password=$(openssl rand -base64 18 | tr -d '\n')
+else
+    password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
+fi
+
+printf 'Serving %s at %s\n' "$PWD" "$url"
+echo
+printf 'Username: %s\n' "$username"
+printf 'Password: %s\n' "$password"
+echo
+echo 'WARNING: Basic Auth over plain HTTP is not encrypted.'
+echo 'Press Ctrl-C to stop.'
+echo
+
+open_browser "$url"
+
+SERVER_USER=$username SERVER_PASSWORD=$password SERVER_PORT=$port python3 - <<'PY'
+import base64
+import os
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+user = os.environ["SERVER_USER"]
+password = os.environ["SERVER_PASSWORD"]
+port = int(os.environ["SERVER_PORT"])
+expected = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+
+
+class AuthHandler(SimpleHTTPRequestHandler):
+    def _authorized(self):
+        if self.headers.get("Authorization") == expected:
+            return True
+
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="dotbash server"')
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Authentication required.\n")
+        return False
+
+    def do_GET(self):
+        if self._authorized():
+            super().do_GET()
+
+    def do_HEAD(self):
+        if self._authorized():
+            super().do_HEAD()
+
+
+ThreadingHTTPServer(("0.0.0.0", port), AuthHandler).serve_forever()
+PY

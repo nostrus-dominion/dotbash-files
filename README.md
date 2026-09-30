@@ -148,7 +148,7 @@ Current repo-owned programs include:
 - `git check-clean` — show repository status and return nonzero when the working tree has changes.
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
-- `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`.
+- `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`; it requests sudo authentication only when another user's process requires elevated inspection or termination.
 
 Git discovers executables named `git-<name>` on PATH, which is why `git-check-clean` is invoked as `git check-clean`.
 

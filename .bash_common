@@ -34,7 +34,7 @@ if [[ -r $HOME/.bash_aliases ]]; then
 fi
 # Remove legacy function versions that were moved into bin/.
 unset -f comfy comfy-backup ytdl ports port freeport 2>/dev/null || :
-unalias ports port freeport 2>/dev/null || :
+unalias ports port freeport server 2>/dev/null || :
 hash -r
 
 if [[ -r $HOME/.bash_functions ]]; then
@@ -56,4 +56,10 @@ if ! shopt -oq posix; then
     elif [[ -r /etc/bash_completion ]]; then
         source /etc/bash_completion
     fi
+fi
+
+# Optional machine-specific/private overrides. This file is user-owned and
+# is never created or managed by dotbash-files.
+if [[ -r $HOME/.bash_local ]]; then
+    source "$HOME/.bash_local" || return $?
 fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Resets the local branch to upstream/master and force-push origin/master.
+# Resets the local default branch to upstream and force-pushes it to origin.
 #
 # This is intentionally guarded because it destroys local commits/changes and
 # rewrites the remote branch.

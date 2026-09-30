@@ -273,7 +273,7 @@ install_user() {
         mv -- "$legacy_functions_dir" "$backup_dir/.bash_functions.d"
     fi
 
-    # Install standalone commands and remember exactly which names this repo owns.
+    # Link standalone commands and remember exactly which names this repo owns.
     bin_dir="$HOME/.local/bin"
     state_dir="$HOME/.local/share/dotbash-files"
     manifest="$state_dir/bin-manifest"
@@ -330,7 +330,7 @@ install_user() {
                 mv -- "$target" "$backup_dir/bin-$command_name"
             fi
 
-            install -m 0755 -- "$source" "$target"
+            ln -s -- "$source" "$target"
         done
     fi
 

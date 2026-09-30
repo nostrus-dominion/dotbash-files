@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# description: Open the current Git repository or path in its remote web interface.
+# usage: repo [--print] [path]
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage:
+  repo
+  repo path
+  repo --print [path]
+
+Opens the current repository in the browser. From a subdirectory, that
+subdirectory is opened. Supplying a path opens that file or directory.
+--print prints the URL instead of opening it.
+EOF
+}
+
+print_only=false
+
+case "${1:-}" in
+    -h|--help)
+        (( $# == 1 )) || {
+            usage >&2
+            exit 2
+        }
+        usage
+        exit 0
+        ;;
+    --print)
+        print_only=true
+        shift
+        ;;
+esac
+
+if (( $# > 1 )); then
+    usage >&2
+    exit 2
+fi
+
+command -v git >/dev/null 2>&1 || {
+    echo 'Error: git is required.' >&2
+    exit 1
+}
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo 'Error: not inside a Git repository.' >&2
+    exit 1
+}
+
+remote=$(git -C "$root" config --get remote.origin.url)
+if [[ -z $remote ]]; then
+    echo 'Error: this repository has no origin remote.' >&2
+    exit 1
+fi
+
+branch=$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null || git -C "$root" rev-parse HEAD)
+
+case "$remote" in
+    git@*:* )
+        host=${remote#git@}
+        host=${host%%:*}
+        remote_path=${remote#*:}
+        base="https://$host/$remote_path"
+        ;;
+    ssh://git@*/* )
+        base=${remote#ssh://git@}
+        base="https://$base"
+        ;;
+    http://*|https://*)
+        base=$remote
+        ;;
+    *)
+        printf 'Error: unsupported origin URL: %s\n' "$remote" >&2
+        exit 1
+        ;;
+esac
+
+base=${base%.git}
+
+if (( $# == 1 )); then
+    requested=$1
+
+    if [[ $requested == /* ]]; then
+        absolute=$requested
+    else
+        absolute="$PWD/$requested"
+    fi
+else
+    absolute=$PWD
+fi
+
+if command -v realpath >/dev/null 2>&1; then
+    absolute=$(realpath -m -- "$absolute")
+fi
+
+case "$absolute" in
+    "$root")
+        relative=''
+        ;;
+    "$root"/*)
+        relative=${absolute#"$root"/}
+        ;;
+    *)
+        printf 'Error: path is outside repository: %s\n' "$absolute" >&2
+        exit 1
+        ;;
+esac
+
+url=$base
+
+if [[ -n $relative ]]; then
+    kind=tree
+    [[ -f $absolute ]] && kind=blob
+
+    case "$base" in
+        https://github.com/*)
+            url="$base/$kind/$branch/$relative"
+            ;;
+        https://gitlab.com/*)
+            url="$base/-/$kind/$branch/$relative"
+            ;;
+        https://bitbucket.org/*)
+            url="$base/src/$branch/$relative"
+            ;;
+        *)
+            url=$base
+            ;;
+    esac
+fi
+
+url=${url// /%20}
+
+if [[ $print_only == true ]]; then
+    printf '%s\n' "$url"
+    exit 0
+fi
+
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 &
+    exit 0
+fi
+
+printf '%s\n' "$url"

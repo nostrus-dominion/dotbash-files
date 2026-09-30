@@ -89,32 +89,6 @@ largest() {
     done < <(find "$directory" -type f -printf '%s\t%p\0' | sort -z -t $'\t' -k1,1nr | head -z -n 20)
 }
 
-# Print aliases and functions from common Bash configuration files.
-all-aliases() {
-    local files=(
-        "$HOME/.bashrc"
-        "$HOME/.bash_aliases"
-        "$HOME/.bash_functions"
-    )
-
-    local file
-
-    for file in "${files[@]}"; do
-        if [[ -f "$file" ]]; then
-            printf 'Contents of %s:\n' "$file"
-            grep '^alias ' "$file"
-
-            if [[ "$file" == "$HOME/.bash_functions" ]]; then
-                grep -E '^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_-]*\(\)[[:space:]]*\{' "$file"
-            fi
-
-            echo
-        else
-            printf '%s does not exist.\n\n' "$file"
-        fi
-    done
-}
-
 # Open a directory with the first supported graphical file manager found.
 open() {
     local path="${1:-.}"
@@ -313,13 +287,13 @@ store() {
 
     if [[ ! -s "$listFile" ]]; then
         echo "Nothing to store before: $cutoff"
-        rm -f -- "$listFile"
+        command rm -f -- "$listFile"
         return 1
     fi
 
     7z a -tzip -mx=0 "$archive" @"$listFile"
     local result=$?
-    rm -f -- "$listFile"
+    command rm -f -- "$listFile"
     return "$result"
 }
 

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+if (( $# != 0 )); then
+    echo "Usage: git check-clean" >&2
+    exit 2
+fi
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "Error: Not inside a Git working tree." >&2
+    exit 1
+}
+
+printf '%s\n' "$root"
+git -C "$root" status --short --branch || exit 1
+
+if [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]]; then
+    echo "Working tree has changes."
+    exit 1
+fi
+
+echo "Working tree is clean."

@@ -9,6 +9,21 @@
 
 set -u
 
+if (( $# == 1 )) && [[ $1 == -h || $1 == --help ]]; then
+    cat <<'EOF'
+Usage: git reset-repo
+
+Reset the current default branch to upstream and force-push it to origin.
+This is destructive and requires typing RESET before it proceeds.
+EOF
+    exit 0
+fi
+
+if (( $# != 0 )); then
+    echo 'Usage: git reset-repo' >&2
+    exit 2
+fi
+
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
     echo "Error: This is not a Git repository." >&2
     exit 1

@@ -11,6 +11,7 @@ dotbash-files/
 │   ├── git-check-clean
 │   ├── git-reset-repo
 │   ├── my-commands
+│   ├── ports
 │   └── ytdl
 ├── .bashrc
 ├── .bash_common
@@ -114,7 +115,7 @@ It:
 5. records those command names in `~/.local/share/dotbash-files/bin-manifest`;
 6. moves commands that disappeared from the repo into the backup directory on the next install.
 
-The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, and `ytdl` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
+The old `~/.bash_functions.d` path is retired during migration and moved into the same backup directory if it still exists. `.bash_common` also clears legacy in-memory `comfy`, `comfy-backup`, `ytdl`, `ports`, `port`, and `freeport` function definitions so a reload immediately exposes the standalone commands in `~/.local/bin`. The pre-manifest `git-clean` command is also treated as a known stale command.
 
 Open a new Bash terminal after installation.
 
@@ -147,6 +148,7 @@ Current repo-owned programs include:
 - `git check-clean` — show repository status and return nonzero when the working tree has changes.
 - `git reset-repo` — guarded reset of the default branch to `upstream`, followed by a force-with-lease push to `origin`.
 - `my-commands` — show the generated command reference.
+- `ports` — list listeners, inspect one port, or gracefully free a port with `ports --free PORT`.
 
 Git discovers executables named `git-<name>` on PATH, which is why `git-check-clean` is invoked as `git check-clean`.
 
@@ -162,4 +164,4 @@ for file in bin/*; do
 done
 ```
 
-Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `lsof`, `curl`, `jq`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.
+Individual utilities have their own dependencies. Common ones include `ip`, `ss`, `curl`, `jq`, `7z`, `yt-dlp`, `ffmpeg`, `rsync`, and `zstd`.

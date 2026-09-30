@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# description: Reset the default branch to upstream and force-push it to origin.
+# usage: git reset-repo
 
 # Resets the local default branch to upstream and force-pushes it to origin.
 #

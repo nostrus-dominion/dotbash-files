@@ -77,6 +77,8 @@ require_privilege() {
     echo 'Elevated privileges are required; authenticating with sudo...'
 
     if [[ -r /dev/tty ]]; then
+        # The current user opens their controlling terminal before sudo authenticates.
+        # shellcheck disable=SC2024
         sudo -v </dev/tty
     else
         sudo -v

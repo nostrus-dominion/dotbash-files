@@ -30,6 +30,8 @@ install_root() {
     local prompt_line
     local tmp
 
+    # Emit shell code; prompt expressions must expand in the installed shell.
+    # shellcheck disable=SC2016
     prompt_line='export PS1="\[\033[38;5;160m\][\u@\h\[$(tput sgr0)\]:\[$(tput sgr0)\]\[\033[38;5;27m\]\w\[$(tput sgr0)\]\[\033[38;5;196m\]]\\$\[$(tput sgr0)\] \[$(tput sgr0)\]"'
 
     echo "dotbash-files installer"
@@ -227,11 +229,15 @@ setup_gitconfig() {
             value=${entry#*$'\n'}
             if [[ $key == include.path || $key == includeif.*.path ]]; then
                 # Relative includes used to resolve beside ~/.local/gitconfig.
+                # Git handles a literal ~/ prefix itself.
+                # shellcheck disable=SC2088
                 [[ $value == /* || $value == '~/'* ]] || value="$legacy_dir/$value"
             fi
             # Preserve native multi-valued settings, particularly credential helpers.
             git config --global --add "$key" "$value"
         done < <(git config --file "$legacy" --null --list)
+        # Match either spelling stored in Git's include.path, including literal ~.
+        # shellcheck disable=SC2088
         for include_path in "$legacy" '~/.local/gitconfig'; do
             git config --global --fixed-value --unset-all include.path "$include_path" || [[ $? == 5 ]]
         done
@@ -276,6 +282,8 @@ setup_gitconfig() {
         [[ $(uname -s) != Darwin ]] || helper=osxkeychain
         git config --global credential.helper "$helper"
     fi
+    # Variable references belong to the generated local file, not the installer.
+    # shellcheck disable=SC2016
     printf -v content '# dotbash-git-name: %s\n# dotbash-git-email: %s\n# Shell identity overrides; native ~/.gitconfig also supports GUI clients.\nexport GIT_AUTHOR_NAME=%q\nexport GIT_AUTHOR_EMAIL=%q\nexport GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"\nexport GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"' \
         "$author_name" "$author_email" "$author_name" "$author_email"
     write_local_block git "$content"
@@ -352,7 +360,11 @@ setup_local() {
         case "$history_choice" in
             -1) content=$'# dotbash-history-policy: -1\nhistory -c\nHISTSIZE=32768\nHISTFILESIZE=0\nHISTFILE=/dev/null' ;;
             0) content=$'# dotbash-history-policy: 0\nhistory -c\nHISTSIZE=0\nHISTFILESIZE=0\nHISTFILE=/dev/null' ;;
-            *) printf -v content '# dotbash-history-policy: %s\nHISTSIZE=%s\nHISTFILESIZE=%s\nHISTFILE="$HOME/.bash_history"' "$history_choice" "$history_choice" "$history_choice" ;;
+            *)
+                # HOME must expand when the generated local file is sourced.
+                # shellcheck disable=SC2016
+                printf -v content '# dotbash-history-policy: %s\nHISTSIZE=%s\nHISTFILESIZE=%s\nHISTFILE="$HOME/.bash_history"' "$history_choice" "$history_choice" "$history_choice"
+                ;;
         esac
         write_local_block history "$content"
     fi

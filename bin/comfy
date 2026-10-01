@@ -132,10 +132,7 @@ comfy-backup() {
     local STORAGE="/mnt/storage/comfyui-backups"
     local STAGE="$STORAGE/.comfyui-backup-stage"
     local ARCHIVE="$STORAGE/comfyui-backup.tar.zst"
-    local TIMESTAMP
     local VENV="$COMFY/venv3.10"
-
-    TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 
     echo
     echo "=============================================="

@@ -157,7 +157,7 @@ if [[ -n $repo_dir && -d $repo_dir/bin ]]; then
     done
 else
     command_names+=("(repository unavailable)")
-    command_values+=("~/.bash_common is not linked to the dotbash-files repository.")
+    command_values+=("$HOME/.bash_common is not linked to the dotbash-files repository.")
 fi
 
 echo 'MY COMMANDS'

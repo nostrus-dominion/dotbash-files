@@ -161,7 +161,11 @@ check_repository() {
         else warn 'ruby missing: git wtf and Ruby syntax checks unavailable'; fi
     fi
     if command -v shellcheck >/dev/null 2>&1; then
-        shellcheck -x -e SC1090,SC1091,SC2139 "${bash_files[@]}" && ok ShellCheck || fail ShellCheck
+        if shellcheck --shell=bash -x -e SC1090,SC1091,SC2139 "${bash_files[@]}"; then
+            ok ShellCheck
+        else
+            fail ShellCheck
+        fi
     else warn 'ShellCheck not found on PATH: optional lint skipped (Bash syntax checked)'; fi
 }
 
@@ -169,7 +173,7 @@ check_machine() {
     local file name resolved tool consumers version spec runtime_name
     local linked_commands=0 total_commands=0 linked_shell=0
     section 'INSTALLATION & LOCAL SETTINGS'
-    case ":$PATH:" in *":$HOME/.local/bin:"*) ok '~/.local/bin is on PATH' ;; *) warn '~/.local/bin is absent from PATH; open/reload Bash after installing' ;; esac
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ok "$HOME/.local/bin is on PATH" ;; *) warn "$HOME/.local/bin is absent from PATH; open/reload Bash after installing" ;; esac
     for file in "$repo_dir"/bin/*; do
         name=${file##*/}
         total_commands=$((total_commands + 1))
@@ -186,15 +190,21 @@ check_machine() {
     field Commands "$linked_commands / $total_commands linked to this checkout"
     # Private code is inspected for syntax only, never executed by the doctor.
     if [[ -f $HOME/.bash_local ]]; then
-        bash -n "$HOME/.bash_local" && ok '~/.bash_local syntax' || fail '~/.bash_local syntax'
-        [[ ! -L $HOME/.bash_local ]] || warn '~/.bash_local is symlinked; installer will make it independent'
-        if [[ $(ls -ld "$HOME/.bash_local" | awk '{print substr($1,5,6)}') != ------ ]]; then warn '~/.bash_local is readable/writable by others; use chmod 600'; fi
+        if bash -n "$HOME/.bash_local"; then
+            ok "$HOME/.bash_local syntax"
+        else
+            fail "$HOME/.bash_local syntax"
+        fi
+        [[ ! -L $HOME/.bash_local ]] || warn "$HOME/.bash_local is symlinked; installer will make it independent"
+        # Only the fixed-width permission field is read; filenames are never parsed.
+        # shellcheck disable=SC2012
+        if [[ $(ls -ld "$HOME/.bash_local" | awk '{print substr($1,5,6)}') != ------ ]]; then warn "$HOME/.bash_local is readable/writable by others; use chmod 600"; fi
         grep -Eq '(^|[[:space:];])(export[[:space:]]+)?(PS1|PROMPT_COMMAND)=' "$HOME/.bash_local" || warn 'No local prompt assignment found'
         grep -q '^# dotbash-history-policy:' "$HOME/.bash_local" || warn 'No installer history policy found; shared default is 1000'
         if grep -Eq '^[[:space:]]*alias[[:space:]]+(server|ports|dr-bash)=' "$HOME/.bash_local"; then
             warn 'Local aliases may shadow managed commands; use type -a COMMAND in your current shell'
         fi
-    else warn '~/.bash_local missing; run bash install.sh'; fi
+    else warn "$HOME/.bash_local missing; run bash install.sh"; fi
     for file in "$HOME/.bash_prompt" "$HOME/.local/gitconfig" "${XDG_CONFIG_HOME:-$HOME/.config}/dotbash-files/history"; do
         [[ ! -e $file && ! -L $file ]] || warn "Legacy settings remain: $file; rerun install.sh to migrate"
     done
@@ -205,7 +215,11 @@ check_machine() {
     done
     field 'Shared config' "$linked_shell / 5 files linked"
     if command -v git >/dev/null 2>&1; then
-        git config --global --get user.name >/dev/null 2>&1 && git config --global --get user.email >/dev/null 2>&1 && ok 'Native Git identity configured' || warn 'Native Git identity incomplete'
+        if git config --global --get user.name >/dev/null 2>&1 && git config --global --get user.email >/dev/null 2>&1; then
+            ok 'Native Git identity configured'
+        else
+            warn 'Native Git identity incomplete'
+        fi
     fi
     section 'TOOLCHAIN / DEPENDENCIES'
     local dependency_columns=1 cell_width index=0 tone label

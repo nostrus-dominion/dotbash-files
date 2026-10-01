@@ -448,7 +448,7 @@ install_user() {
     }
 
     # Names previously installed by this repo. git-clean predates the manifest.
-    stale_candidates=(git-clean test.sh)
+    stale_candidates=(git-clean test.sh dotbash-doctor)
 
     if [[ -r $manifest ]]; then
         while IFS= read -r command_name; do

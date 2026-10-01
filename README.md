@@ -18,7 +18,7 @@ dotbash-files/
 │   ├── ports
 │   ├── repo
 │   ├── server
-│   ├── dotbash-doctor
+│   ├── dr-bash
 │   └── ytdl
 ├── .bashrc
 ├── .bash_common
@@ -218,7 +218,7 @@ A few conveniences intentionally remain shell functions or aliases rather than s
 
 Current repo-owned programs include:
 
-- `dotbash-doctor` — one self-contained command that automatically runs repository validation, machine diagnostics and isolated behavior checks.
+- `dr-bash` — one self-contained command that automatically runs repository validation, machine diagnostics and isolated behavior checks.
 - `battery` — show a compact battery/AC indicator on macOS and Linux; prints nothing when no battery is present.
 - `comfy` — manage the ComfyUI systemd service; `comfy --backup` creates the rebuild backup.
 - `ytdl` — the standard yt-dlp wrapper.
@@ -234,21 +234,21 @@ Current repo-owned programs include:
 
 Git discovers executables named `git-<name>` on PATH, which is why `git-check-clean` is invoked as `git check-clean`.
 
-## Doctor and validation
+## Dr. Bash and validation
 
 ```bash
-dotbash-doctor           # all diagnostics and behavior checks, automatically
-dotbash-doctor --check   # optional: repository validation only
-dotbash-doctor --no-color # optional: disable terminal color
+dr-bash           # all diagnostics and behavior checks, automatically
+dr-bash --check   # optional: repository validation only
+dr-bash --no-color # optional: disable terminal color
 ```
 
-Output uses a MOTD-style banner, host/time metadata, grouped diagnostics, a compact dependency grid, concise runtime versions, and a final health summary. Green means passed, yellow means warnings, and red means failed checks. The layout adapts to terminal width. Color is automatic for terminals, disabled for pipes/logs and `NO_COLOR`, and configurable with `--color=auto|always|never` or `--no-color`.
+Output uses a MOTD-style `DR. BASH` banner with `// DOT FILES DIAGNOSTIC TOOL //`, host/time metadata, grouped diagnostics, a compact dependency grid, concise runtime versions, and a final health summary. Green means passed, yellow means warnings, and red means failed checks. The layout adapts to terminal width. Color is automatic for terminals, disabled for pipes/logs and `NO_COLOR`, and configurable with `--color=auto|always|never` or `--no-color`.
 
-All validation code lives inside `bin/dotbash-doctor`; there is no separate tests directory or supporting test script. Before installation, run `bin/dotbash-doctor` from the checkout. The installed symlink works from any directory. It replaces `bin/test.sh`; rerun `install.sh` to retire the old installed command.
+All validation code lives inside `bin/dr-bash`; there is no separate tests directory or supporting test script. Before installation, run `bin/dr-bash` from the checkout. The installed symlink works from any directory. It replaces `bin/test.sh` and the former `dotbash-doctor` command; rerun `install.sh` to install `dr-bash` and back up the old installed commands.
 
 Checks include each shared Bash file separately, command metadata and executable modes, Ruby syntax when Ruby is installed, and ShellCheck when available. Machine diagnostics report missing tools with the commands that need them, broken or outdated links, PATH shadowing, runtime versions, local-file syntax/permissions, and leftover legacy settings. Optional missing tools are warnings; failures exit `1` and invalid arguments exit `2`. The doctor never sources your private local code or changes your real settings. Its embedded archive checks use temporary files; installer checks use a temporary home. These fixtures are removed afterward. A standalone process cannot inspect aliases/functions already loaded in its parent shell; use `type -a server` (or another command) there. The doctor flags common aliases visible in the local file.
 
-A plain `dotbash-doctor` automatically runs the embedded behavior checks, which exercise fresh and repeated installation in a temporary home, legacy migration, final prompt overrides, all history policies, invocation through a symlink, and archive content/metadata/date filters/failure cleanup. Checks run in independent groups. Archive preflight probes the required TAR, date and find operations directly instead of matching version banners, and names the missing capability when it skips. Missing tools produce explicit skipped-check warnings; archive checks require GNU tar/find/date, Python 3 and gzip/pigz, and installer checks require Python 3 and Git. Ruby and ShellCheck remain optional.
+A plain `dr-bash` automatically runs the embedded behavior checks, which exercise fresh and repeated installation in a temporary home, legacy migration, final prompt overrides, all history policies, invocation through a symlink, and archive content/metadata/date filters/failure cleanup. Checks run in independent groups. Archive preflight probes the required TAR, date and find operations directly instead of matching version banners, and names the missing capability when it skips. Missing tools produce explicit skipped-check warnings; archive checks require GNU tar/find/date, Python 3 and gzip/pigz, and installer checks require Python 3 and Git. Ruby and ShellCheck remain optional. A “ShellCheck not found on PATH” warning means the external linter is unavailable; Bash syntax and the other checks still run. Install ShellCheck with your package manager (`sudo apt install shellcheck` on Debian/Ubuntu, or `brew install shellcheck` on macOS), then rerun `dr-bash` to include lint automatically.
 
 ## Archive guarantees
 

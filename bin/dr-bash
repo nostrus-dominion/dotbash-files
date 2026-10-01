@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # description: Run all installation, dependency, syntax and isolated behavior checks automatically.
-# usage: dotbash-doctor [--check] [--color=auto|always|never] [--help]
+# usage: dr-bash [--check] [--color=auto|always|never] [--help]
 
 set -uo pipefail
 
 usage() {
     cat <<'HELP'
-Usage: dotbash-doctor [--check] [--color=auto|always|never] [--help]
+Usage: dr-bash [--check] [--color=auto|always|never] [--help]
   no flag  Run all diagnostics and isolated behavior checks automatically.
   --check  Repository syntax, executable modes, metadata and optional ShellCheck only.
   --color  Color mode (auto is the default); --no-color is also accepted.
@@ -91,20 +91,16 @@ banner() {
     printf '\n%s%s' "$bold" "$green"
     if (( columns >= 55 )); then
         cat <<'BANNER'
-   ____   ___ _____ ____    _    ____  _   _
-  |  _ \ / _ \_   _| __ )  / \  / ___|| | | |
-  | | | | | | || | |  _ \ / _ \ \___ \| |_| |
-  | |_| | |_| || | | |_) / ___ \ ___) |  _  |
-  |____/ \___/ |_| |____/_/   \_\____/|_| |_|
+   ____  ____      ____    _    ____  _   _
+  |  _ \|  _ \    | __ )  / \  / ___|| | | |
+  | | | | |_) |   |  _ \ / _ \ \___ \| |_| |
+  | |_| |  _ < _  | |_) / ___ \ ___) |  _  |
+  |____/|_| \_(_) |____/_/   \_\____/|_| |_|
 BANNER
     else
-        printf '  >>> DOTBASH <<<\n'
+        printf '  >>> DR. BASH <<<\n'
     fi
-    if (( columns >= 40 )); then
-        printf '%s  %sDOCTOR%s  %s/ /  SHELL DIAGNOSTICS%s\n\n' "$reset" "$cyan$bold" "$reset" "$dim" "$reset"
-    else
-        printf '%s  %sDOCTOR // DIAGNOSTICS%s\n\n' "$reset" "$cyan$bold" "$reset"
-    fi
+    printf '%s  %s// DOT FILES DIAGNOSTIC TOOL //%s\n\n' "$reset" "$cyan$bold" "$reset"
     field Host "$host"
     field Platform "$platform"
     field Time "$stamp"
@@ -166,7 +162,7 @@ check_repository() {
     fi
     if command -v shellcheck >/dev/null 2>&1; then
         shellcheck -x -e SC1090,SC1091,SC2139 "${bash_files[@]}" && ok ShellCheck || fail ShellCheck
-    else warn 'ShellCheck missing: lint skipped'; fi
+    else warn 'ShellCheck not found on PATH: optional lint skipped (Bash syntax checked)'; fi
 }
 
 check_machine() {
@@ -195,7 +191,7 @@ check_machine() {
         if [[ $(ls -ld "$HOME/.bash_local" | awk '{print substr($1,5,6)}') != ------ ]]; then warn '~/.bash_local is readable/writable by others; use chmod 600'; fi
         grep -Eq '(^|[[:space:];])(export[[:space:]]+)?(PS1|PROMPT_COMMAND)=' "$HOME/.bash_local" || warn 'No local prompt assignment found'
         grep -q '^# dotbash-history-policy:' "$HOME/.bash_local" || warn 'No installer history policy found; shared default is 1000'
-        if grep -Eq '^[[:space:]]*alias[[:space:]]+(server|ports|dotbash-doctor)=' "$HOME/.bash_local"; then
+        if grep -Eq '^[[:space:]]*alias[[:space:]]+(server|ports|dr-bash)=' "$HOME/.bash_local"; then
             warn 'Local aliases may shadow managed commands; use type -a COMMAND in your current shell'
         fi
     else warn '~/.bash_local missing; run bash install.sh'; fi
@@ -497,6 +493,9 @@ config.mkdir(parents=True)
 (home / '.local/gitconfig').write_text('[user]\n name = Test User\n email = test@example.invalid\n[credential]\n helper = cache\n helper = custom-helper\n[alias]\n hi = status --short\n')
 (home / '.gitconfig').write_text(f'[include]\n path = {home}/.local/gitconfig\n[credential]\n helper = native-helper\n[core]\n editor = vim\n')
 (home / '.bash_local').write_text("# Keep this private code exactly\nPS1='my override> '\nalias personal='true'\n")
+legacy_bin = home / '.local/bin'
+legacy_bin.mkdir()
+(legacy_bin / 'dotbash-doctor').symlink_to(repo / 'bin/dotbash-doctor')
 # User declines changing prompt, history, and Git identity.
 install(['y', 'n', 'n', 'n'])
 local = home / '.bash_local'
@@ -518,10 +517,12 @@ assert result == 'my override> |/dev/null|32768|Test User', result
 # Backups use mktemp suffixes, so back-to-back installs are supported.
 install(['y', 'n', 'n', 'n'])
 assert local.read_bytes() == first, 'Unchanged settings modified private local code'
-assert (home / '.local/bin/dotbash-doctor').is_symlink()
+assert (home / '.local/bin/dr-bash').is_symlink()
+assert not os.path.lexists(home / '.local/bin/dotbash-doctor')
+assert list(home.glob('.bash-backup-*/bin-dotbash-doctor')), 'Old command was not backed up'
 assert not (home / '.local/bin/test.sh').exists()
 reference = subprocess.check_output([str(home / '.local/bin/my-commands')], env=env, text=True)
-assert all(name in reference for name in ('zipit', 'store', 'targz', 'dotbash-doctor'))
+assert all(name in reference for name in ('zipit', 'store', 'targz', 'dr-bash'))
 assert '_dotbash_bundle' not in reference
 # Exercise both zero and bounded history choices, keeping custom content.
 for choice in ('0', '32768'):
@@ -531,7 +532,7 @@ for choice in ('0', '32768'):
                                     stderr=subprocess.DEVNULL, text=True)
     assert result == (f'0|/dev/null' if choice == '0' else f'32768|{home}/.bash_history'), result
 # Doctor through the installed symlink must locate the checkout from any CWD.
-subprocess.run([str(home / '.local/bin/dotbash-doctor'), '--check'], cwd=scratch,
+subprocess.run([str(home / '.local/bin/dr-bash'), '--check'], cwd=scratch,
                env=env, check=True, stdout=subprocess.DEVNULL)
 
 # Fresh install, preserving default colors/history/identity on the next run.
@@ -553,7 +554,7 @@ shutil.copytree(repo, copy, ignore=shutil.ignore_patterns('.git'))
 for name in ('.bash_exports', '.bash_functions'):
     with (copy / name).open('a') as f:
         f.write('\nif then\n')
-result = subprocess.run([str(copy / 'bin/dotbash-doctor'), '--check'], env=env,
+result = subprocess.run([str(copy / 'bin/dr-bash'), '--check'], env=env,
                         capture_output=True, text=True)
 assert result.returncode == 1
 assert '.bash_exports' in result.stderr and '.bash_functions' in result.stderr

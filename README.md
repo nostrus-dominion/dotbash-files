@@ -1,6 +1,6 @@
 # dotbash-files
 
-*One Bash setup, several machines, and fewer mystery commands six months from now.*
+*One Bash, several machines, and fewer mystery commands six months from now.*
 
 The repository separates environment, shell behavior, shell-local helpers, and standalone commands:
 
@@ -32,11 +32,11 @@ dotbash-files/
 ## What goes where
 
 - `.bashrc` — generic interactive entry point.
-- `.bash_exports` — exported environment variables and PATH setup.
-- `.bash_common` — shared defaults, colors, completion, NVM initialization, and loading shared Bash files.
-- `~/.bash_local` — private prompt, history policy, shell Git identity overrides, and final machine-specific settings. This file lives outside the repository and is sourced last by `.bashrc`.
 - `.bash_aliases` — simple command substitutions.
+- `.bash_common` — shared defaults, colors, completion, NVM initialization, and loading shared Bash files.
+- `.bash_exports` — exported environment variables and PATH setup.
 - `.bash_functions` — commands that must affect the current shell, such as changing directory, activating a virtual environment, or reading Bash history.
+- `.bash_local` — private prompt, history policy, shell Git identity overrides, and final machine-specific settings. This file lives outside the repository and is sourced last by `.bashrc`.
 - `bin/` — standalone programs installed into `~/.local/bin`.
 
 If a command does not need to modify the current Bash process, it should normally live in `bin/`.

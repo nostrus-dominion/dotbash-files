@@ -97,7 +97,7 @@ stop_server() {
     }
 
     local attempt
-    for attempt in {1..30}; do
+    for ((attempt = 0; attempt < 30; attempt++)); do
         if ! kill -0 "$pid" 2>/dev/null; then
             rm -f -- "$pid_file"
             echo 'Server stopped.'

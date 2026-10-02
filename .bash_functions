@@ -350,9 +350,9 @@ targz() (
     archive="$parent/$name.tar.gz"
     [[ ! -e $archive && ! -L $archive ]] || { printf "Error: '%s' already exists.\n" "$archive" >&2; return 1; }
     command -v pigz >/dev/null 2>&1 && compressor=pigz
-    command -v "$compressor" >/dev/null 2>&1 && command -v tar >/dev/null 2>&1 || {
+    if ! command -v "$compressor" >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
         echo 'Error: tar and pigz/gzip are required.' >&2; return 1;
-    }
+    fi
     # Staging and final output live beside the input, never inside that tree.
     work=$(mktemp -d "$parent/.dotbash-archive.XXXXXXXX") || return 1
     trap 'command rm -rf -- "$work"' EXIT

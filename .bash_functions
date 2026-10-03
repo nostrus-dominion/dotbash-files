@@ -13,7 +13,6 @@
 # Remove names that are functions below before Bash parses their definitions.
 unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man zipit store targz rm 2>/dev/null || :
 
-
 # ============================================================================
 # General utilities
 # ============================================================================
@@ -224,34 +223,42 @@ rm() {
     command rm -I --preserve-root "$@"
 }
 
-# Find files/directories whose names contain the supplied text.
-search() {
-    if [[ $# -eq 0 ]]; then
-        echo "Usage: search <search_term>"
-        return 1
-    fi
-
-    find . -name "*$*"
-}
-
 # Internal archive builder: explicit entries keep date filtering non-recursive.
 _dotbash_bundle() (
     local kind=$1; shift
-    local archive cutoff='' work tar_bin result find_bin=find
+    local archive cutoff='' work tar_bin result find_bin=find mode=all arg
+    local -a inputs=()
     local -a find_args
     archive=store.tar
     [[ $kind != zip ]] || archive=zipit.zip
+    [[ $kind != gz ]] || archive=targz.tar.gz
     if [[ -e $archive || -L $archive ]]; then
         printf "Error: '%s' already exists.\n" "$archive" >&2; return 1
     fi
-    if (( $# > 0 )); then
+    if [[ ${1:-} == -- ]]; then
+        mode=paths
+        shift
+        (( $# > 0 )) || { echo 'Error: provide a file or directory after --.' >&2; return 2; }
+    elif [[ ${1:-} == --before ]]; then
+        mode=date
+        shift
+        (( $# > 0 )) || { echo 'Error: provide a date after --before.' >&2; return 2; }
+    elif (( $# > 0 )); then
+        if [[ -e $1 || -L $1 ]]; then mode=paths; else mode=date; fi
+    fi
+    if [[ $mode == paths ]]; then
+        for arg in "$@"; do
+            [[ -e $arg || -L $arg ]] || { printf "Error: '%s' does not exist.\n" "$arg" >&2; return 1; }
+            case $arg in /*|./*|../*) inputs+=("$arg");; *) inputs+=("./$arg");; esac
+        done
+    elif [[ $mode == date ]]; then
         local date_bin=date
         command -v gdate >/dev/null 2>&1 && date_bin=gdate
         cutoff=$("$date_bin" -d "$*" '+%s.%N' 2>/dev/null) || {
-            echo 'Error: invalid date expression (GNU date/gdate is required).' >&2; return 2;
+            echo 'Error: expected an existing path or valid date expression.' >&2; return 2;
         }
     fi
-    if [[ $kind == tar ]]; then
+    if [[ $kind == tar || $kind == gz ]]; then
         tar_bin=tar
         command -v gtar >/dev/null 2>&1 && tar_bin=gtar
         [[ $("$tar_bin" --version 2>/dev/null) == *'GNU tar'* ]] || {
@@ -266,13 +273,17 @@ _dotbash_bundle() (
     trap 'command rm -rf -- "$work"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM HUP
-    find_args=(. -mindepth 1 '(' -path "$work" -prune ')' -o)
+    if [[ $mode == paths ]]; then
+        find_args=("${inputs[@]}" '(' -samefile "$work" -prune ')' -o)
+    else
+        find_args=(. -mindepth 1 '(' -samefile "$work" -prune ')' -o)
+    fi
     [[ -z $cutoff ]] || find_args+=(-not -newermt "@$cutoff")
     # GNU find is required for date filtering; -print0 also preserves newlines.
     command -v gfind >/dev/null 2>&1 && find_bin=gfind
     "$find_bin" "${find_args[@]}" -print0 > "$work/list" || return 1
     [[ -s $work/list ]] || { echo 'Nothing to archive.'; return 1; }
-    if [[ $kind == tar ]]; then
+    if [[ $kind == tar || $kind == gz ]]; then
         "$tar_bin" --create --file="$work/archive" --format=pax --numeric-owner \
             --acls --xattrs --xattrs-include='*' --sparse \
             --null --verbatim-files-from --no-recursion --files-from="$work/list"
@@ -288,12 +299,14 @@ import zipfile
 # Store symlinks as links, never traverse them. ZIP readers vary in their
 # treatment of Unix attributes; store() is the filesystem-preserving option.
 with open(sys.argv[1], 'rb') as listing:
-    paths = [os.fsdecode(p) for p in listing.read().split(b'\0') if p]
+    paths = list(dict.fromkeys(os.fsdecode(p) for p in listing.read().split(b'\0') if p))
 with zipfile.ZipFile(sys.argv[2], 'w', compression=zipfile.ZIP_STORED,
                      allowZip64=True, strict_timestamps=False) as archive:
     for path in paths:
         st = os.lstat(path)
-        name = path[2:] if path.startswith('./') else path
+        name = os.path.normpath(path).lstrip('/')
+        if name == ".." or name.startswith("../"):
+            name = os.path.abspath(path).lstrip("/")
         if stat.S_ISLNK(st.st_mode):
             info = zipfile.ZipInfo(name)
             info.create_system = 3
@@ -313,6 +326,12 @@ PY
         result=$?
     fi
     (( result == 0 )) || { echo 'Archive creation failed.' >&2; return "$result"; }
+    if [[ $kind == gz ]]; then
+        local compressor=gzip
+        command -v pigz >/dev/null 2>&1 && compressor=pigz
+        "$compressor" -c -- "$work/archive" > "$work/compressed" || return 1
+        command mv -- "$work/compressed" "$work/archive" || return 1
+    fi
     # Hard-link publication is atomic and cannot replace an existing file/link.
     command ln -- "$work/archive" "$archive" || return 1
     printf '%s created successfully.\n' "$archive"
@@ -330,7 +349,10 @@ store() (
 
 # Portable compressed tarball, using pigz or gzip; all work stays in a subshell.
 targz() (
-    (( $# == 1 )) || { echo 'Usage: targz <file-or-directory>' >&2; return 2; }
+    if (( $# != 1 )) || [[ ! -e $1 && ! -L $1 ]]; then
+        _dotbash_bundle gz "$@"
+        return $?
+    fi
     local input=$1 parent name archive work compressor=gzip canonical_dir
     local -a pipeline_status
     [[ -e $input || -L $input ]] || { printf "Error: '%s' does not exist.\n" "$input" >&2; return 1; }
@@ -371,58 +393,6 @@ targz() (
     command ln -- "$work/archive" "$archive" || return 1
     printf '%s created successfully.\n' "$archive"
 )
-
-# Extract a supported archive into the current directory.
-extract() {
-    if [[ $# -ne 1 ]]; then
-        echo "Usage: extract <archive>"
-        return 1
-    fi
-
-    local archive="$1"
-
-    if [[ ! -f "$archive" ]]; then
-        printf "Error: '%s' is not a valid file.\n" "$archive" >&2
-        return 1
-    fi
-
-    case "$archive" in
-        *.tar.bz2|*.tbz2)
-            tar -xjf "$archive"
-            ;;
-        *.tar.gz|*.tgz)
-            tar -xzf "$archive"
-            ;;
-        *.tar.xz|*.txz)
-            tar -xJf "$archive"
-            ;;
-        *.tar)
-            tar -xf "$archive"
-            ;;
-        *.bz2)
-            bunzip2 -- "$archive"
-            ;;
-        *.gz)
-            gunzip -- "$archive"
-            ;;
-        *.rar)
-            unrar x -- "$archive"
-            ;;
-        *.zip)
-            unzip -- "$archive"
-            ;;
-        *.7z)
-            7z x -- "$archive"
-            ;;
-        *.Z)
-            uncompress -- "$archive"
-            ;;
-        *)
-            printf "Error: '%s' cannot be extracted by this command." "$archive" >&2
-            return 1
-            ;;
-    esac
-}
 
 # Convert PNG files to JPG without metadata.
 png2jpg() {

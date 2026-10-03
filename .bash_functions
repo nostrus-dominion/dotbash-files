@@ -644,14 +644,16 @@ mkvenv() {
     source "$directory/bin/activate"
 }
 
-# Activate the first venv*/bin/activate found in the current directory.
+# Activate a venv* or .venv* environment in the current directory.
 pyact() {
-    shopt -s nullglob
-    local matches=(./venv*/bin/activate)
-    shopt -u nullglob
+    local candidate answer
+    local -a matches=()
+    for candidate in ./venv*/bin/activate ./.venv*/bin/activate; do
+        [[ -f $candidate && -r $candidate ]] && matches+=("$candidate")
+    done
 
     if [[ ${#matches[@]} -eq 0 ]]; then
-        printf "No venv*/bin/activate found in %s\n" "$PWD" >&2
+        printf "No venv*/bin/activate or .venv*/bin/activate found in %s\n" "$PWD" >&2
         return 1
     fi
 

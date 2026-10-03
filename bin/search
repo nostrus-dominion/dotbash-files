@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+
+## Version 2.0
+## License: GPL (as in the original scripts)
+# Combined filename search: command-line and interactive modes.
+# Requires Bash 4.4+ and GNU find/coreutils (Linux).
+
+set -o pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: search [OPTIONS] [DIRECTORY] [SEARCH TERM...]
+
+Search names recursively, ignoring case. Terms are joined with spaces;
+matching is by substring, with find wildcards (*, ?, [...]) supported.
+Quote wildcard patterns to prevent expansion by your shell.
+Default: search all entry types beneath the current directory, at any depth.
+With no term, start interactive mode (use -f for the old find-files behavior).
+
+Options:
+  -a, --all            All entry types (default)
+  -f, --files          Regular files only
+  -d, --directories    Directories only
+  -p, --path DIR       Search beneath DIR explicitly
+  -m, --max-depth N    Limit recursion depth (e.g. 10)
+  -L, --follow         Follow symbolic links
+  -s, --save           Also save a timestamped report in your home directory
+  -o, --output FILE    Save a report to FILE; never overwrite existing files
+  -h, --help           Show this help
+  --                   End options (use before terms beginning with a dash)
+
+Examples:
+  search invoice
+  search -f '*.sh'
+  search -d /etc nginx
+  search -p '/path with spaces' annual report
+  search -f -s /etc conf
+  search -f -o results.txt invoice
+  search -f
+
+An existing directory is treated as DIRECTORY only when another argument
+follows it. Use --path to remove ambiguity. The starting directory itself
+is excluded. File-type counts use the final suffix, ignoring case.
+Exit status: 0 = completed (including no matches), 1 = search/save failure,
+2 = invalid arguments. Partial results are labelled if find reports errors.
+EOF
+}
+
+die() { printf 'search: %s\n' "$*" >&2; exit 2; }
+
+search_type=all
+search_dir=.
+path_given=false
+follow=false
+save=false
+output_file=
+max_depth=
+positional=()
+
+while (( $# )); do
+    case $1 in
+        -a|--all) search_type=all ;;
+        -f|--files) search_type=f ;;
+        -d|--directories) search_type=d ;;
+        -p|--path)
+            (( $# >= 2 )) || die "$1 requires a directory"
+            search_dir=$2; path_given=true; shift ;;
+        -m|--max-depth)
+            (( $# >= 2 )) || die "$1 requires a nonnegative integer"
+            [[ $2 =~ ^[0-9]+$ ]] || die 'depth must be a nonnegative integer'
+            max_depth=$2; shift ;;
+        -L|--follow) follow=true ;;
+        -s|--save) save=true ;;
+        -o|--output)
+            (( $# >= 2 )) && [[ -n $2 ]] || die "$1 requires a filename"
+            output_file=$2; save=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; positional+=("$@"); break ;;
+        -*) die "unknown option: $1 (see search --help)" ;;
+        *) positional+=("$1") ;;
+    esac
+    shift
+done
+
+if ! "$path_given" && (( ${#positional[@]} >= 2 )) && [[ -d ${positional[0]} ]]; then
+    search_dir=${positional[0]}
+    positional=("${positional[@]:1}")
+fi
+[[ -d $search_dir ]] || die "not a directory: $search_dir"
+# Prevent find interpreting a relative starting path as an expression.
+[[ $search_dir == /* || $search_dir == ./* || $search_dir == ../* ]] || search_dir=./$search_dir
+for dep in find sort mktemp date; do
+    command -v "$dep" >/dev/null 2>&1 || die "required command missing: $dep"
+done
+
+# Colors are optional; searching must work without the shared config.
+red= reset=
+color_config=${XDG_CONFIG_HOME:-$HOME/.config}/my-scripts/colors.conf
+if [[ -t 2 && -r $color_config ]]; then
+    source "$color_config"
+fi
+
+work_dir=$(mktemp -d) || exit 1
+find_pid=
+cleanup() {
+    if [[ -n $find_pid ]]; then
+        kill "$find_pid" 2>/dev/null
+        wait "$find_pid" 2>/dev/null
+    fi
+    command rm -rf -- "$work_dir"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+print_path() {
+    # Keep unusual names on one report line, without splitting the records.
+    if [[ $1 == *$'\n'* || $1 == *$'\r'* || $1 == *$'\t'* ]]; then
+        printf '%q\n' "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+run_search() {
+    local term=$1 status=0 path name extension key
+    local total=0 files=0 directories=0 other=0
+    local -a cmd=(find -P) keys=()
+    local -A counts=()
+    "$follow" && cmd=(find -L)
+    cmd+=("$search_dir" -mindepth 1)
+    [[ -n $max_depth ]] && cmd+=(-maxdepth "$max_depth")
+    [[ $search_type != all ]] && cmd+=(-type "$search_type")
+    cmd+=(-iname "*$term*" -print0)
+
+    "${cmd[@]}" > "$work_dir/raw" 2> "$work_dir/errors" &
+    find_pid=$!
+    if [[ -t 2 ]]; then
+        local spinner='|/-\' i=0
+        while kill -0 "$find_pid" 2>/dev/null; do
+            printf '\rSearching %s' "${spinner:i%4:1}" >&2
+            i=$((i + 1))
+            sleep 0.1
+        done
+        printf '\r             \r' >&2
+    fi
+    wait "$find_pid" || status=1
+    find_pid=
+    if (( status )); then
+        printf '%bsearch: some paths could not be searched; results are partial.%b\n' "$red" "$reset" >&2
+        cat "$work_dir/errors" >&2
+    fi
+    LC_ALL=C sort -z "$work_dir/raw" > "$work_dir/sorted" || return 1
+
+    while IFS= read -r -d '' path; do
+        total=$((total + 1))
+        if [[ -L $path ]] && ! "$follow"; then
+            other=$((other + 1))
+        elif [[ -f $path ]]; then
+            files=$((files + 1))
+            name=${path##*/}
+            extension='[no extension]'
+            # A lone leading dot, as in .bashrc, is not an extension.
+            if [[ ${name#.} == *.* && $name != *. ]]; then
+                extension=.${name##*.}
+                extension=${extension,,}
+            fi
+            counts["$extension"]=$(( ${counts["$extension"]:-0} + 1 ))
+        elif [[ -d $path ]]; then
+            directories=$((directories + 1))
+        else
+            other=$((other + 1))
+        fi
+    done < "$work_dir/sorted"
+
+    if (( files )); then
+        mapfile -d '' -t keys < <(printf '%s\0' "${!counts[@]}" | LC_ALL=C sort -z)
+    fi
+    {
+        printf 'Search term: %s\nSearch directory: %s\nSearch type: %s\n' "$term" "$search_dir" "$search_type"
+        (( status )) && printf 'WARNING: partial results; some paths could not be searched.\n'
+        printf '\nMatching paths:\n'
+        if (( total )); then
+            while IFS= read -r -d '' path; do print_path "$path"; done < "$work_dir/sorted"
+        else
+            printf 'No matches found.\n'
+        fi
+        if (( files )); then
+            printf '\n%-20s %s\n' Filetype Count
+            for key in "${keys[@]}"; do
+                printf '%-20s %s\n' "${key//$'\n'/\\n}" "${counts["$key"]}"
+            done
+        fi
+        printf '\nTotal matches: %d\nFiles: %d\nDirectories: %d\nOther entries: %d\n' "$total" "$files" "$directories" "$other"
+    } > "$work_dir/report"
+    cat "$work_dir/report"
+    return "$status"
+}
+
+save_report() {
+    local requested=$1 target base suffix=0
+    [[ -n $requested ]] || requested=$HOME/search_results_$(date +%Y%m%d_%H%M%S).txt
+    target=$requested
+    base=${requested%.txt}
+    while [[ -e $target || -L $target ]]; do
+        suffix=$((suffix + 1))
+        target=$base-$suffix.txt
+    done
+    # noclobber also protects against a file appearing after the check.
+    if (set -o noclobber; cat "$work_dir/report" > "$target"); then
+        printf 'Results saved to: %s\n' "$target" >&2
+    else
+        printf 'search: could not save report to %s\n' "$target" >&2
+        return 1
+    fi
+}
+
+if (( ${#positional[@]} )); then
+    printf -v term '%s ' "${positional[@]}"
+    term=${term% }
+    [[ -n $term ]] || die 'search term cannot be empty; use * to match everything'
+    status=0
+    run_search "$term" || status=1
+    if "$save"; then save_report "$output_file" || status=1; fi
+    exit "$status"
+fi
+
+[[ -t 0 ]] || die 'provide a search term when stdin is not a terminal'
+while true; do
+    printf '\nEnter a name/pattern (or quit): ' >&2
+    IFS= read -r term || break
+    [[ $term == quit ]] && break
+    [[ -n $term ]] || continue
+    run_search "$term"
+    if "$save"; then
+        save_report "$output_file"
+    else
+        printf '\nSave results? (y/N): ' >&2
+        IFS= read -r answer || break
+        if [[ $answer == [yY] || $answer == [yY][eE][sS] ]]; then
+            printf 'Filename in your home directory (without .txt; Enter for timestamp): ' >&2
+            IFS= read -r filename || break
+            if [[ -n $filename ]]; then
+                if [[ $filename == */* || $filename == . || $filename == .. ]]; then
+                    printf 'search: enter a filename without a directory path.\n' >&2
+                else
+                    save_report "$HOME/${filename%.txt}.txt"
+                fi
+            else
+                save_report ''
+            fi
+        fi
+    fi
+    printf '\nEnter to search again, clear to clear the screen, or quit: ' >&2
+    IFS= read -r choice || break
+    case $choice in
+        quit) break ;;
+        clear) command -v clear >/dev/null 2>&1 && clear ;;
+    esac
+done

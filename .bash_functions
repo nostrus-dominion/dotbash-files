@@ -19,7 +19,7 @@ unalias please dnstop ethtool iftop tcpdump vnstat pyact tmpd man zipit store ta
 
 # Re-run the last simple command with sudo after showing exactly what will run.
 # Bash history may include complex syntax, so this requires explicit approval.
-please() {
+doit() {
     local previous
     previous=$(fc -ln -1) || return 1
     printf 'Run with sudo: %s\n' "$previous"

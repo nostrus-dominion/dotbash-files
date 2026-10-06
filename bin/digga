@@ -20,11 +20,11 @@ Modern conveniences:
   - Queries use short timeouts and show status, answers, and authority data.
 
 Examples:
-  digga nostrus-dominion.co
-  digga nostrus-dominion.co MX
-  digga requests.nostrus-dominion.co A 10.1.10.1
-  digga requests.nostrus-dominion.co A @1.1.1.1
-  digga 10.1.10.99
+  digga domain.com
+  digga domain.com MX
+  digga sub.domain.com A 10.1.10.1
+  digga sub.domain.com A @1.1.1.1
+  digga 192.168.1.10
 EOF
 }
 

@@ -9,9 +9,10 @@ usage() {
 Usage: getcerts host [port]
 
 Examples:
-  getcerts nostrus-dominion.co
-  getcerts nostrus-dominion.co 8443
-  getcerts https://nostrus-dominion.co/path
+  getcerts domain.co
+  getcerts sub.domain.co
+  getcerts domain.co 8443
+  getcerts https://domain.co/path
 EOF
 }
 

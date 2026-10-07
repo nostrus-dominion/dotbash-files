@@ -4,7 +4,7 @@
 
 set -u
 
-idle_timeout=1800
+idle_timeout=300
 
 format_duration() {
     local seconds=$1
@@ -35,7 +35,7 @@ Usage:
   server [port]
   server -u [port]
   server --unsecure [port]
-  server --stop
+  server -s, --stop
   server -h, --help
 
 The default port is 8000.
@@ -128,7 +128,7 @@ case "${1:-}" in
         usage
         exit 0
         ;;
-    --stop)
+    -s|--stop)
         (( $# == 1 )) || {
             usage >&2
             exit 2
@@ -308,6 +308,6 @@ fi
 printf 'PID: %s\n' "$server_pid"
 printf 'Log: %s\n' "$log_file"
 printf 'Idle timeout: %s\n' "$(format_duration "$idle_timeout")"
-echo 'Stop with: server --stop'
+echo 'Stop with: server -s|--stop'
 
 open_browser "$url"
